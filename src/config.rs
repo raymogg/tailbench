@@ -1,4 +1,4 @@
-//! Scenario configuration (§3).
+//! Scenario configuration.
 //!
 //! Unknown fields are rejected everywhere, so a config written against the full
 //! Phase 1 schema fails loudly rather than silently ignoring `[topology]`.
@@ -46,7 +46,7 @@ pub struct Load {
     pub rate_rps: f64,
     #[serde(default)]
     pub burstiness_cv: Option<f64>,
-    /// §3: rejected rather than ignored -- it needs a measured capacity number
+    /// rejected rather than ignored -- it needs a measured capacity number
     /// from an expert solution, which does not exist until step 4.
     #[serde(default)]
     pub target_utilization: Option<f64>,
@@ -56,8 +56,8 @@ pub struct Load {
 #[serde(deny_unknown_fields)]
 pub struct Slo {
     pub budget_ms: f64,
-    /// §6.5. Defaults to 10 x budget_ms; the multiplier is a guess pending the
-    /// §10.6 sweep, not a result.
+    /// Defaults to 10 x budget_ms; the multiplier is a guess pending the
+    /// sweep, not a result.
     #[serde(default)]
     pub penalty_ms: Option<f64>,
 }
@@ -73,7 +73,7 @@ impl Slo {
 pub struct RequestClassCfg {
     pub name: String,
     pub weight: f64,
-    /// §6.3: a *minimum* call set. Extra calls are permitted (P5 hedging needs
+    /// a *minimum* call set. Extra calls are permitted (P5 hedging needs
     /// that); order is unconstrained (P4's fix needs that).
     pub requires: Vec<String>,
 }
@@ -103,7 +103,7 @@ impl Config {
         Ok(cfg)
     }
 
-    /// §3.1. Every rejection names the offending value.
+    /// Every rejection names the offending value.
     pub fn validate(&self) -> Result<()> {
         let s = &self.scenario;
         if !(s.duration_s.is_finite() && s.duration_s > 0.0) {
@@ -144,7 +144,7 @@ impl Config {
         }
         let penalty = self.slo.penalty_ms();
         if !penalty.is_finite() || penalty <= self.slo.budget_ms {
-            // §6.5: below this, quitting strictly dominates any late success.
+            // below this, quitting strictly dominates any late success.
             bail!(
                 "slo.penalty_ms ({penalty}) must be > slo.budget_ms ({}); otherwise \
                  failing scores better than being slow",
@@ -205,7 +205,7 @@ impl Config {
     }
 
     /// Stable index for a downstream id. Used as `downstream_id` in the RNG
-    /// derivation (§5.3), so it must depend only on config order.
+    /// derivation, so it must depend only on config order.
     pub fn downstream_index(&self, id: &str) -> Option<u16> {
         self.downstreams.iter().position(|d| d.id == id).map(|i| i as u16)
     }

@@ -1,4 +1,4 @@
-//! Mock downstream cluster server (§1.2, container 2).
+//! Mock downstream cluster server (container 2).
 //!
 //! Runs on its own pinned cores so its sleeps and timers do not share a tokio
 //! runtime with the service under test.
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
     // Readiness marker: the service waits for this rather than for container
     // start, so the first requests do not hit an absent peer and poison the
-    // warmup (§1.4).
+    // warmup.
     let ready = args.socket.with_extension("ready");
     std::fs::write(&ready, b"ok")?;
 

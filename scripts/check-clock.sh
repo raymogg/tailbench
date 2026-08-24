@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# §1.1: every time read and every sleep goes through the Clock trait.
+# every time read and every sleep goes through the Clock trait.
 # The trait is worthless if call sites bypass it, so this is enforced, not
 # documented.
 set -euo pipefail

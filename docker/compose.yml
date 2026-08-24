@@ -1,4 +1,4 @@
-# §1.2: three components, three containers, disjoint pinned cores.
+# three components, three containers, disjoint pinned cores.
 #
 # Cores below assume a 12-core Linux host. Isolation comes from the cpuset plus
 # `isolcpus` on the host, NOT from containerisation -- a container without a

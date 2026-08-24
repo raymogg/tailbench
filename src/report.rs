@@ -1,10 +1,10 @@
-//! Offline aggregation (§9.3).
+//! Offline aggregation.
 //!
-//! `cvar_99` is the primary metric (§6.5.1); p99 is reported alongside for
+//! `cvar_99` is the primary metric; p99 is reported alongside for
 //! interpretability. Percentiles come from the sorted exact sample, not
 //! histogram buckets: at these run sizes sorting is free and exact, and
 //! relative-precision buckets would quantize the very statistic whose replay
-//! std. dev. §7 divides by.
+//! std. dev. the admission filter divides by.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,7 @@ fn ceil_robust(x: f64) -> usize {
 }
 
 /// Nearest-rank, on the sorted sample. Stated explicitly because different
-/// conventions give different p99s on identical data and §0's reproducibility
+/// conventions give different p99s on identical data and the reproducibility
 /// claim needs one written down.
 pub fn percentile(sorted: &[f64], q: f64) -> f64 {
     if sorted.is_empty() {
@@ -35,7 +35,7 @@ pub fn percentile(sorted: &[f64], q: f64) -> f64 {
     sorted[rank.min(sorted.len()) - 1]
 }
 
-/// Mean of the worst `ceil(n * (1-q))` values (§6.5.2).
+/// Mean of the worst `ceil(n * (1-q))` values.
 ///
 /// Smoother than a single order statistic: every failure contributes its full
 /// penalty proportionally, where p99 is flat below 1% failures and equals the
@@ -56,7 +56,7 @@ pub struct Report {
     pub n: usize,
     pub n_post_warmup: usize,
 
-    /// Primary optimization target (§6.5.1).
+    /// Primary optimization target.
     pub cvar_99: f64,
     pub cvar_999: f64,
     /// Reported for interpretability.
@@ -69,7 +69,7 @@ pub struct Report {
     pub mean: f64,
     pub throughput_rps: f64,
 
-    /// §6.5.3: never optional. A tail statistic without these is
+    /// never optional. A tail statistic without these is
     /// uninterpretable -- a run can post an excellent p99 by failing 0.9%.
     pub ok_rate: f64,
     pub expiry_rate: f64,
@@ -78,7 +78,7 @@ pub struct Report {
     pub dropped_count: usize,
     pub never_served_count: usize,
 
-    /// Diagnostic only, never headline (§9.3). The gap against the penalised
+    /// Diagnostic only, never headline. The gap against the penalised
     /// figures shows whether a service won on latency or on attrition.
     pub p99_ok_only: f64,
     pub cvar_99_ok_only: f64,
@@ -87,8 +87,8 @@ pub struct Report {
     pub downstream_timeouts: usize,
 
     pub penalty_ms: f64,
-    /// True when a gate failed. A failed run still reports its metrics -- the
-    /// Phase 1 spec's §1.5 wants failure distinguished from slowness, which
+    /// True when a gate failed. A failed run still reports its metrics: a gate
+    /// failure must score as a failure rather than as a slow run, and that
     /// requires the numbers to stay visible for debugging.
     pub failed: bool,
     pub failure_reason: Option<String>,
@@ -138,7 +138,7 @@ pub fn build(input: ReportInput<'_>) -> Report {
     } else {
         None
     };
-    // §6.2: shedding is a gate violation in v1.
+    // shedding is a gate violation in v1.
     if dropped > 0 {
         failed = true;
         reason = Some(format!("{dropped} requests dropped by the service"));

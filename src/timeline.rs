@@ -1,10 +1,10 @@
-//! Precomputed arrival timeline (§7.1).
+//! Precomputed arrival timeline.
 //!
 //! The whole schedule is generated before the run starts. Three reasons: it is
 //! inspectable and testable without running anything; the dispatch loop does no
 //! RNG work on the hot path; and the schedule is provably independent of
-//! service behaviour, which is the open-loop property §1.1 makes
-//! non-negotiable.
+//! service behaviour, which is the open-loop property this whole design rests
+//! on.
 
 use rand::Rng;
 use std::time::Duration;
@@ -16,12 +16,12 @@ use crate::rng::{arrival_rng, class_rng, payload_nonce};
 pub struct ScheduledRequest {
     pub request_id: u64,
     /// From run start. This is the *intended* dispatch time -- latency is
-    /// measured from here, not from actual send (§7.2).
+    /// measured from here, not from actual send.
     pub offset: Duration,
     pub class: String,
     pub required: Vec<String>,
     pub nonce: u64,
-    /// §6.8: instantaneous arrival rate at this offset, for v2's value
+    /// instantaneous arrival rate at this offset, for v2's value
     /// function. Computed here because the timeline is the only place it is
     /// knowable, and it is unrecoverable afterwards.
     pub offered_load_rps: f64,
@@ -76,8 +76,8 @@ impl Timeline {
         Timeline { requests, duration }
     }
 
-    /// Strip required-call sets. §10.1's synthetic target makes no downstream
-    /// calls -- it validates the timeline, dispatch loop, and measurement
+    /// Strip required-call sets. The synthetic validation target makes no
+    /// downstream calls -- it checks the timeline, dispatch loop, and measurement
     /// points against a closed form, not the oracle.
     pub fn without_requirements(mut self) -> Self {
         for r in &mut self.requests {

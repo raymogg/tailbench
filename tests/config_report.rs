@@ -1,4 +1,4 @@
-//! §3.1 validation rules and §9.3 aggregation.
+//! validation rules and aggregation.
 
 use tailbench::config::Config;
 use tailbench::report::{cvar, percentile};
@@ -75,7 +75,7 @@ fn percentile_is_nearest_rank() {
     assert_eq!(percentile(&xs, 1.0), 100.0);
 }
 
-/// §6.5.2: mean of the worst ceil(n * 0.01).
+/// mean of the worst ceil(n * 0.01).
 #[test]
 fn cvar_is_mean_of_worst_tail() {
     let xs: Vec<f64> = (1..=100).map(|i| i as f64).collect();
@@ -84,7 +84,7 @@ fn cvar_is_mean_of_worst_tail() {
     assert_eq!(cvar(&xs, 0.90), 95.5);
 }
 
-/// §6.5.1: the reason CVaR is the optimization target. p99 is flat in the
+/// the reason CVaR is the optimization target. p99 is flat in the
 /// penalty below 1% failures and equals it above; CVaR responds throughout.
 #[test]
 fn cvar_responds_to_failures_where_p99_does_not() {

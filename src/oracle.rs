@@ -1,5 +1,5 @@
-//! Success definition (§6). Scorer-side: the service under test must never be
-//! able to reach this module (§1.3).
+//! Success definition. Scorer-side: the service under test must never be
+//! able to reach this module.
 
 use std::collections::HashSet;
 
@@ -34,7 +34,7 @@ impl Oracle {
             .map(|(_, i)| *i)
     }
 
-    /// The digest a correct service must produce (§6.4).
+    /// The digest a correct service must produce.
     ///
     /// Computable offline from `(seed, request_id, downstream_id)` without the
     /// service's cooperation, which is what makes it unforgeable: the values
@@ -49,7 +49,7 @@ impl Oracle {
         fold_digest(req.nonce, &mut digests)
     }
 
-    /// §6.3: every required downstream needs at least one *successful* call.
+    /// every required downstream needs at least one *successful* call.
     ///
     /// A minimum, not an exact set -- extra calls are fine (P5 hedging needs
     /// that), and order is unconstrained (P4's fix needs that).
@@ -62,7 +62,7 @@ impl Oracle {
         req.required.iter().all(|r| ok.contains(r.as_str()))
     }
 
-    /// Classify one request (§6.1, §6.2).
+    /// Classify one request.
     ///
     /// Note the ordering: the deadline is checked *first*. A late-but-correct
     /// response is `Expired`, not `Ok` -- past the deadline the response has no

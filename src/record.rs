@@ -1,4 +1,4 @@
-//! Per-request records (§9.1). Log everything, aggregate offline.
+//! Per-request records. Log everything, aggregate offline.
 //!
 //! All times are ns since run start: smaller than timestamps, exactly
 //! comparable, and free of monotonic-vs-wall ambiguity.
@@ -10,13 +10,13 @@ use serde::{Deserialize, Serialize};
 pub enum Outcome {
     /// Completed by deadline, required work done, digest matched.
     Ok,
-    /// Completed after deadline, or never completed. §6.2.
+    /// Completed after deadline, or never completed..
     Expired,
     /// On time but digest mismatched or required work skipped.
     Incorrect,
     /// Service returned an error.
     Error,
-    /// Service refused/shed the request. Gate violation in v1 (§6.2).
+    /// Service refused/shed the request. Gate violation in v1.
     Dropped,
     /// No record produced by end of run. Must be emitted, never omitted --
     /// otherwise the top row of the hack table is invisible in the log format.
@@ -42,7 +42,7 @@ pub struct CallSpan {
     pub downstream_id: String,
     pub attempt: u32,
     /// Time waiting for a capacity permit. Part of the call's latency, and the
-    /// mechanism by which a downstream saturates (§8).
+    /// mechanism by which a downstream saturates.
     pub queue_wait_ns: u64,
     pub service_ns: u64,
     pub outcome: CallOutcome,
@@ -60,14 +60,14 @@ pub struct RequestRecord {
     pub class: String,
     pub intended_dispatch_ns: u64,
     pub actual_dispatch_ns: u64,
-    /// §6.1: intended_dispatch + budget_ms. Stamped from *intended* so
+    /// intended_dispatch + budget_ms. Stamped from *intended* so
     /// generator lag cannot gift the service extra time.
     pub deadline_ns: u64,
     pub first_byte_ns: Option<u64>,
     pub completion_ns: Option<u64>,
     pub outcome: Outcome,
     pub expired: bool,
-    /// §6.8: arrival rate at intended dispatch, from the precomputed timeline.
+    /// arrival rate at intended dispatch, from the precomputed timeline.
     /// Unrecoverable after the fact; recorded so v2's value function is a
     /// scorer change rather than a re-run.
     pub offered_load_rps: f64,
@@ -75,19 +75,19 @@ pub struct RequestRecord {
     pub digest_ok: Option<bool>,
     pub required_calls_met: bool,
     pub spans: Vec<CallSpan>,
-    /// 0 if dispatched on time. §7.3.
+    /// 0 if dispatched on time..
     pub late_dispatch_ns: u64,
 }
 
 impl RequestRecord {
-    /// Latency as measured, from *intended* dispatch (§7.2). `None` if the
+    /// Latency as measured, from *intended* dispatch. `None` if the
     /// request never completed.
     pub fn e2e_ns(&self) -> Option<u64> {
         self.completion_ns
             .map(|c| c.saturating_sub(self.intended_dispatch_ns))
     }
 
-    /// §6.5: the value this request contributes to the latency population.
+    /// the value this request contributes to the latency population.
     /// Every scheduled request contributes something -- a percentile over only
     /// successes is trivially gamed by failing the slow ones.
     pub fn scored_latency_ms(&self, penalty_ms: f64) -> f64 {
@@ -98,13 +98,13 @@ impl RequestRecord {
     }
 }
 
-/// Written once per run alongside the JSONL (§1.4).
+/// Written once per run alongside the JSONL.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunManifest {
     pub scenario_id: String,
     pub seed: u64,
     pub git_sha: Option<String>,
-    /// §1.2.1: `linux-pinned` or `unpinned`. Anything not `linux-pinned` is
+    /// `linux-pinned` or `unpinned`. Anything not `linux-pinned` is
     /// stamped non-authoritative in every report it appears in.
     pub environment: String,
     pub cpuset: Option<String>,

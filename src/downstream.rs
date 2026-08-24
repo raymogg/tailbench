@@ -1,6 +1,6 @@
-//! The `Downstream` trait and its two impls (§1.2).
+//! The `Downstream` trait and its two impls.
 //!
-//! `InProcess` is the development and §10.7-differential impl. `UdsClient`
+//! `InProcess` is the development and differential impl. `UdsClient`
 //! talks to the `mocks` binary over a Unix socket, which is the configuration
 //! authoritative runs use -- separate processes on disjoint pinned cores, so
 //! the service under test is the only meaningful user of its runtime.
@@ -66,7 +66,7 @@ struct Slot {
     permits: Arc<Semaphore>,
 }
 
-/// The mock cluster (§8). Deterministic given `(seed, request_id,
+/// The mock cluster. Deterministic given `(seed, request_id,
 /// downstream_id)` and independent of wall clock and arrival order.
 pub struct InProcessCluster<C: Clock> {
     slots: Vec<Slot>,
@@ -124,7 +124,7 @@ impl<C: Clock> InProcessCluster<C> {
             });
         }
 
-        // 2. Service time, from a per-call-site RNG (§5.3).
+        // 2. Service time, from a per-call-site RNG.
         let mut rng = call_rng(self.seed, ctx.request_id, slot.index, ctx.attempt);
         let service = slot.cfg.distribution.sample(&mut rng);
 
@@ -164,7 +164,8 @@ impl<C: Clock> Downstream for InProcessCluster<C> {
 /// Unix-socket client for the out-of-process mock cluster.
 ///
 /// UDS over TCP for a tighter tail: no TCP stack, no Nagle, no port exhaustion.
-/// §10.7 measures what the boundary costs.
+/// The cost of the process boundary is measured separately, against the
+/// in-process impl as a differential fixture.
 ///
 /// One connection, multiplexed: a writer half behind a mutex and a single
 /// reader task that dispatches replies to per-call oneshots by tag. A
@@ -233,7 +234,7 @@ impl Downstream for UdsClient {
     }
 }
 
-/// Turn a reply into the span the record carries (§9.1).
+/// Turn a reply into the span the record carries.
 pub fn span_of(name: &str, ctx: CallCtx, reply: &CallReply) -> CallSpan {
     CallSpan {
         downstream_id: name.to_string(),
@@ -244,7 +245,7 @@ pub fn span_of(name: &str, ctx: CallCtx, reply: &CallReply) -> CallSpan {
     }
 }
 
-/// Round-trip latency of the transport itself, for §10.7's baseline.
+/// Round-trip latency of the transport itself, for the baseline.
 pub async fn transport_probe<D: Downstream, C: Clock>(
     d: &D,
     clock: &C,

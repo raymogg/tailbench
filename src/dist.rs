@@ -1,7 +1,7 @@
-//! Latency distributions (§4).
+//! Latency distributions.
 //!
 //! Every kind except `Empirical` has a closed-form quantile, which is what lets
-//! §10.1 check a measured p99 against a known answer rather than against
+//! check a measured p99 against a known answer rather than against
 //! another measurement.
 
 use anyhow::{bail, Result};
@@ -42,7 +42,7 @@ pub enum Distribution {
 }
 
 impl Distribution {
-    /// §3.1: reject out-of-domain parameters at config load, not at first draw.
+    /// reject out-of-domain parameters at config load, not at first draw.
     pub fn validate(&self) -> Result<()> {
         match self {
             Distribution::Constant { ms } => {
@@ -85,9 +85,10 @@ impl Distribution {
                 if !scale_ms.is_finite() || *scale_ms <= 0.0 {
                     bail!("pareto: scale_ms must be finite and > 0, got {scale_ms}");
                 }
-                // §4.2: alpha <= 1 has infinite mean, so any measured mean is
+                // alpha <= 1 has infinite mean, so any measured mean is
                 // meaningless. alpha <= 2 has infinite variance -- legitimate,
-                // but destabilises the replay std. dev. that §7 divides by.
+                // but destabilises the replay std. dev. that the admission
+                // filter divides by.
                 if !alpha.is_finite() || *alpha <= 1.0 {
                     bail!("pareto: alpha must be > 1 (alpha <= 1 has infinite mean), got {alpha}");
                 }
@@ -104,7 +105,7 @@ impl Distribution {
         Ok(())
     }
 
-    /// One draw. Callers supply a per-call-site RNG (§5.3), never a shared one.
+    /// One draw. Callers supply a per-call-site RNG, never a shared one.
     pub fn sample(&self, rng: &mut ChaCha8Rng) -> Duration {
         ms_to_duration(self.sample_ms(rng))
     }
@@ -143,7 +144,7 @@ impl Distribution {
 
     /// Closed-form quantile, or `None` for `Empirical` (use the order statistic).
     ///
-    /// This is the reference §10.1 validates measurements against.
+    /// This is the reference that measured quantiles are validated against.
     pub fn analytic_quantile(&self, q: f64) -> Option<f64> {
         assert!((0.0..1.0).contains(&q), "quantile must be in [0,1)");
         match self {
@@ -187,7 +188,7 @@ impl Distribution {
 }
 
 /// Box-Muller. `rand_distr` has this, but rolling it explicitly keeps the draw
-/// count per sample fixed and known, which matters for §5's reproducibility.
+/// count per sample fixed and known, which matters for the reproducibility.
 fn sample_standard_normal(rng: &mut ChaCha8Rng) -> f64 {
     let u1: f64 = rng.gen::<f64>().max(f64::MIN_POSITIVE);
     let u2: f64 = rng.gen::<f64>();
@@ -195,7 +196,7 @@ fn sample_standard_normal(rng: &mut ChaCha8Rng) -> f64 {
 }
 
 /// Acklam's inverse normal CDF. Accurate to ~1.15e-9 relative, which is far
-/// tighter than the sampling error at the run sizes in §10.1.
+/// tighter than the sampling error at the run sizes.
 pub fn inverse_standard_normal_cdf(p: f64) -> f64 {
     assert!((0.0..1.0).contains(&p));
     const A: [f64; 6] = [

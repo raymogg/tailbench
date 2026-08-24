@@ -132,7 +132,7 @@ src/
 ├── timeline.rs       # precomputed arrivals (§7.1)
 ├── downstream.rs     # Downstream trait, in-process + UDS impls
 ├── target.rs         # Target trait, fanout + synthetic targets
-├── harness.rs        # open-loop dispatch loop
+├── load_generator.rs # open-loop dispatch loop
 ├── oracle.rs         # deadlines, outcomes, expected digest (§6)
 ├── record.rs         # per-request record types
 └── report.rs         # percentiles, CVaR, outcome rates

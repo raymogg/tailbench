@@ -1,4 +1,4 @@
-//! §10.2 and §10.6: the open-loop property and the success definition.
+//! and: the open-loop property and the success definition.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tailbench::clock::{Clock, RealClock};
 use tailbench::config::Config;
-use tailbench::harness;
+use tailbench::load_generator;
 use tailbench::record::Outcome;
 use tailbench::report::{self, ReportInput};
 use tailbench::target::{Response, Target};
@@ -53,11 +53,11 @@ impl Target for SlowTarget {
     }
 }
 
-/// §10.2: the most valuable test here.
+/// the most valuable test here.
 ///
 /// A target 100x slower than the inter-arrival gap must still receive requests
 /// at the configured rate. A closed-loop generator fails this immediately --
-/// and since §1.1 calls that choice determinative for the whole project, it
+/// and since calls that choice determinative for the whole project, it
 /// must not be able to regress silently.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn generator_is_open_loop() {
@@ -72,7 +72,7 @@ async fn generator_is_open_loop() {
         dispatched: dispatched.clone(),
     });
 
-    let out = harness::run(&cfg, timeline, target, RealClock).await.unwrap();
+    let out = load_generator::run(&cfg, timeline, target, RealClock).await.unwrap();
     let sent = dispatched.load(Ordering::Relaxed);
     assert_eq!(sent, n, "dispatched {sent} of {n} scheduled requests");
 
@@ -80,7 +80,7 @@ async fn generator_is_open_loop() {
     assert_eq!(out.records.len(), n);
 }
 
-/// §7.2: latency is measured from *intended* dispatch, so generator lag shows
+/// latency is measured from *intended* dispatch, so generator lag shows
 /// up in the numbers instead of vanishing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn latency_measured_from_intended_dispatch() {
@@ -90,7 +90,7 @@ async fn latency_measured_from_intended_dispatch() {
         delay: Duration::from_millis(200),
         dispatched: Arc::new(AtomicUsize::new(0)),
     });
-    let out = harness::run(&cfg, timeline, target, RealClock).await.unwrap();
+    let out = load_generator::run(&cfg, timeline, target, RealClock).await.unwrap();
 
     for r in out.records.iter().filter(|r| r.completion_ns.is_some()) {
         let e2e = r.e2e_ns().unwrap();
@@ -103,7 +103,7 @@ async fn latency_measured_from_intended_dispatch() {
 }
 
 // ---------------------------------------------------------------------------
-// §10.6: boundary semantics
+// boundary semantics
 // ---------------------------------------------------------------------------
 
 struct ScriptedTarget {
@@ -169,7 +169,7 @@ impl Target for ScriptedTarget {
 async fn run_mode(mode: Mode) -> Vec<Outcome> {
     let cfg = Config::from_str(CFG).unwrap();
     let timeline = Timeline::generate(&cfg);
-    let out = harness::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
+    let out = load_generator::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
         .await
         .unwrap();
     out.records.iter().map(|r| r.outcome).collect()
@@ -186,7 +186,7 @@ async fn correct_service_scores_ok() {
     );
 }
 
-/// §6.3: skipping the required downstream is caught even when the response is
+/// skipping the required downstream is caught even when the response is
 /// on time and the digest looks right.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn skipped_work_is_incorrect() {
@@ -194,14 +194,14 @@ async fn skipped_work_is_incorrect() {
     assert!(outcomes.iter().all(|o| *o == Outcome::Incorrect));
 }
 
-/// §6.4: the digest depends on values only obtainable by calling downstreams.
+/// the digest depends on values only obtainable by calling downstreams.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fabricated_digest_is_incorrect() {
     let outcomes = run_mode(Mode::BadDigest).await;
     assert!(outcomes.iter().all(|o| *o == Outcome::Incorrect));
 }
 
-/// §6.1: past the deadline the response has no value, correct or not.
+/// past the deadline the response has no value, correct or not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_but_correct_is_expired() {
     let outcomes = run_mode(Mode::Late).await;
@@ -212,7 +212,7 @@ async fn late_but_correct_is_expired() {
     );
 }
 
-/// §6.5: the property the penalty table exists to guarantee. Abandoning
+/// the property the penalty table exists to guarantee. Abandoning
 /// requests must score *worse* than completing them slowly, or the environment
 /// rewards giving up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -223,7 +223,7 @@ async fn expiring_is_worse_than_being_slow() {
     let score = |mode: Mode| async move {
         let cfg = Config::from_str(CFG).unwrap();
         let timeline = Timeline::generate(&cfg);
-        let out = harness::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
+        let out = load_generator::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
             .await
             .unwrap();
         report::build(ReportInput {

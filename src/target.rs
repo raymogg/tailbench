@@ -1,5 +1,5 @@
-//! The interface the harness drives (§1.2), plus synthetic targets used to
-//! validate the harness itself (§10.1, §10.2).
+//! The interface the harness drives, plus synthetic targets used to
+//! validate the harness itself.
 
 use anyhow::Result;
 use rand_chacha::ChaCha8Rng;
@@ -17,7 +17,7 @@ pub struct Response {
     pub digest: Option<u64>,
     pub spans: Vec<CallSpan>,
     /// Set only when the service itself failed or refused. Deadline evaluation
-    /// is the harness's job (§6.5), never the target's.
+    /// is the harness's job, never the target's.
     pub failure: Option<Outcome>,
 }
 
@@ -75,8 +75,8 @@ impl<D: Downstream + 'static> Target for FanoutTarget<D> {
 /// concurrency limit.
 ///
 /// Under unbounded concurrency there is no queueing, so measured e2e latency
-/// should converge to the distribution itself -- which is what lets §10.1 check
-/// the whole pipeline against a closed form.
+/// should converge to the distribution itself -- which is what allows the whole
+/// pipeline to be checked against a closed form.
 pub struct SyntheticTarget<C: Clock> {
     pub dist: Distribution,
     pub clock: C,

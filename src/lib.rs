@@ -9,6 +9,6 @@ pub mod rng;
 pub mod timeline;
 pub mod downstream;
 pub mod target;
-pub mod harness;
+pub mod load_generator;
 pub mod oracle;
 pub mod report;

@@ -1,4 +1,4 @@
-//! Open-loop load generator (§7).
+//! Open-loop load generator.
 //!
 //! The single choice that determines whether this project measures anything
 //! real: requests are dispatched on a fixed timeline, independent of service
@@ -18,9 +18,9 @@ use crate::record::{Outcome, RequestRecord};
 use crate::target::Target;
 use crate::timeline::{ScheduledRequest, Timeline};
 
-/// §7.3: dispatch later than this counts as a coordinated-omission event.
-/// 1ms is a starting point; §10.3 calibrates it against measured generator
-/// capacity and the value belongs in the run manifest.
+/// dispatch later than this counts as a coordinated-omission event.
+/// 1ms is a starting point, not a measured number: calibrate it against the
+/// generator's actual capacity and record the chosen value in the run manifest.
 pub const LATE_DISPATCH_THRESHOLD: Duration = Duration::from_millis(1);
 
 /// Fraction of post-warmup requests that may be dispatched late before the run
@@ -95,7 +95,8 @@ where
 
         // Spawn, never await inline. Awaiting the handler here would be a
         // closed-loop generator wearing an open-loop costume -- the exact
-        // failure this design exists to avoid. Tested in §10.2.
+        // failure this design exists to avoid. Covered by
+        // `generator_is_open_loop`, so it cannot regress silently.
         tokio::spawn(async move {
             let resp = target.handle(&req).await;
             let done = clock2.now();
@@ -119,7 +120,7 @@ where
 
     let mut records = collector.await?;
 
-    // §9.1: a request that never completed must still produce a line. If
+    // a request that never completed must still produce a line. If
     // unserved requests simply produce no record, the top row of the hack
     // table becomes invisible in the log format itself.
     let seen: std::collections::HashSet<u64> =
@@ -155,7 +156,7 @@ fn build_record(
     lateness: Duration,
 ) -> RequestRecord {
     let intended_ns = req.offset.as_nanos() as u64;
-    // §6.1: stamped from *intended* dispatch, so generator lag cannot gift the
+    // stamped from *intended* dispatch, so generator lag cannot gift the
     // service extra time.
     let deadline_ns = intended_ns + budget.as_nanos() as u64;
     let completion_ns = ns_since(start, done);
@@ -174,7 +175,7 @@ fn build_record(
         actual_dispatch_ns: ns_since(start, actual),
         deadline_ns,
         // No streaming response over this transport, so there is no meaningful
-        // first byte distinct from completion (§13).
+        // first byte distinct from completion.
         first_byte_ns: None,
         completion_ns: Some(completion_ns),
         outcome,

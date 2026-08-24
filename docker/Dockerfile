@@ -1,6 +1,6 @@
 # TODO(before step 4): replace both tags with digests.
 #
-# §1.4 requires digest pinning -- a moving tag changes libc and kernel-visible
+# Digest pinning is required -- a moving tag changes libc and kernel-visible
 # behaviour between admission runs and the eval that cites them, invalidating
 # the numbers silently. Tags are used here only so this builds today; resolve
 # them on the Linux host with:

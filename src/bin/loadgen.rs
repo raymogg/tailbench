@@ -1,4 +1,4 @@
-//! Load generator (§1.2, container 1) and CLI (§11).
+//! Load generator (container 1) and CLI.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tailbench::clock::{Clock, RealClock};
 use tailbench::config::Config;
 use tailbench::downstream::{InProcessCluster, UdsClient};
-use tailbench::harness::{self, RunOutcome};
+use tailbench::load_generator::{self, RunOutcome};
 use tailbench::record::{RequestRecord, RunManifest};
 use tailbench::report::{self, Report, ReportInput};
 use tailbench::target::{FanoutTarget, SyntheticTarget};
@@ -31,12 +31,12 @@ enum Cmd {
         #[arg(long, default_value = "out")]
         out: PathBuf,
         /// Repeat N times and report replay std. dev. of cvar_99 and p99 --
-        /// the noise denominator §7 divides by.
+        /// the noise denominator the admission filter divides by.
         #[arg(long, default_value_t = 1)]
         repeat: usize,
         /// Talk to the `mocks` binary over this socket. Without it the mock
         /// cluster runs in-process, which is faster to iterate on but shares a
-        /// runtime with the target (§1.2) and is never authoritative.
+        /// runtime with the target and is never authoritative.
         #[arg(long)]
         socket: Option<String>,
     },
@@ -47,7 +47,7 @@ enum Cmd {
         #[arg(long)]
         config: PathBuf,
     },
-    /// §10.1: check measured quantiles against the closed form.
+    /// check measured quantiles against the closed form.
     Validate {
         #[arg(long)]
         config: PathBuf,
@@ -114,8 +114,8 @@ async fn cmd_run(
     }
 
     if repeat > 1 {
-        // §10.4: this is the number that goes in the README, and the
-        // denominator §7's signal/noise gate divides by.
+        // this is the number that goes in the README, and the
+        // denominator the signal/noise gate divides by.
         println!(
             "\nreplay over {repeat} runs:\n  cvar_99  mean {:.2} ms  sd {:.3} ms\n  \
              p99      mean {:.2} ms  sd {:.3} ms",
@@ -128,7 +128,7 @@ async fn cmd_run(
 
     let env = environment();
     if env != "linux-pinned" {
-        // §1.2.1: automatic, not a documentation note -- otherwise a laptop
+        // automatic, not a documentation note -- otherwise a laptop
         // number ends up quoted as a result.
         println!(
             "\nNON-AUTHORITATIVE: environment={env}. Authoritative runs require a \
@@ -154,7 +154,7 @@ async fn execute(cfg: &Config, socket: Option<&str>) -> Result<RunOutcome> {
                 downstreams: client,
                 seed: cfg.scenario.seed,
             });
-            harness::run(cfg, timeline, target, RealClock).await
+            load_generator::run(cfg, timeline, target, RealClock).await
         }
         None => {
             let cluster = Arc::new(InProcessCluster::new(cfg, RealClock));
@@ -162,12 +162,12 @@ async fn execute(cfg: &Config, socket: Option<&str>) -> Result<RunOutcome> {
                 downstreams: cluster,
                 seed: cfg.scenario.seed,
             });
-            harness::run(cfg, timeline, target, RealClock).await
+            load_generator::run(cfg, timeline, target, RealClock).await
         }
     }
 }
 
-/// §1.4: `depends_on` waits for container start, not readiness. Without this
+/// `depends_on` waits for container start, not readiness. Without this
 /// the first requests hit a cold or absent peer and poison the warmup.
 async fn wait_for_ready(socket: &str) -> Result<()> {
     let ready = PathBuf::from(socket).with_extension("ready");
@@ -191,7 +191,7 @@ async fn cmd_validate(config: &Path) -> Result<()> {
         clock: RealClock,
         seed: cfg.scenario.seed,
     });
-    let outcome = harness::run(&cfg, timeline, target, RealClock).await?;
+    let outcome = load_generator::run(&cfg, timeline, target, RealClock).await?;
     let rep = report::build(ReportInput {
         records: &outcome.records,
         warmup_s: cfg.scenario.warmup_s,
@@ -201,7 +201,7 @@ async fn cmd_validate(config: &Path) -> Result<()> {
     });
 
     println!("{}", rep.summary());
-    println!("measured vs analytic (§10.1):");
+    println!("measured vs analytic:");
     println!("  {:<8} {:>10} {:>10} {:>10}", "q", "measured", "analytic", "delta");
     for (label, q, measured) in [
         ("p50", 0.50, rep.p50),
@@ -276,7 +276,7 @@ fn write_manifest(path: &Path, cfg: &Config, outcome: &RunOutcome) -> Result<()>
     Ok(())
 }
 
-/// §1.2.1. `linux-pinned` only when a cpuset was actually applied -- a
+/// `linux-pinned` only when a cpuset was actually applied -- a
 /// container without one looks pinned and is not.
 fn environment() -> String {
     if cfg!(target_os = "linux") && std::env::var("TAILBENCH_CPUSET").is_ok() {

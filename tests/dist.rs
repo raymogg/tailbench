@@ -1,4 +1,4 @@
-//! §10.5: distribution and RNG tests.
+//! distribution and RNG tests.
 
 use tailbench::dist::Distribution;
 use tailbench::rng::call_rng;
@@ -36,7 +36,7 @@ fn quantiles_converge_to_closed_form() {
     }
 }
 
-/// §4.1: bimodal is the important one -- it models a cache miss and is where
+/// bimodal is the important one -- it models a cache miss and is where
 /// mean and p99 diverge hardest.
 #[test]
 fn bimodal_slow_fraction_and_p99() {
@@ -60,7 +60,7 @@ fn same_seed_same_sequence() {
     assert_ne!(sample_n(&d, 1000, 3), sample_n(&d, 1000, 4));
 }
 
-/// §5's structural claim: a draw depends only on its key, never on call order.
+/// the structural claim: a draw depends only on its key, never on call order.
 #[test]
 fn draws_are_order_independent() {
     let d = Distribution::LogNormal { median_ms: 8.0, sigma: 0.6 };
@@ -84,7 +84,7 @@ fn distinct_keys_give_distinct_draws() {
     };
     assert_ne!(draw(1, 0, 0), draw(2, 0, 0), "request_id ignored");
     assert_ne!(draw(1, 0, 0), draw(1, 1, 0), "downstream_id ignored");
-    // §5.3: attempt is in the key so P5's retries do not collide.
+    // attempt is in the key so P5's retries do not collide.
     assert_ne!(draw(1, 0, 0), draw(1, 0, 1), "attempt ignored");
 }
 

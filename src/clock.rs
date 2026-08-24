@@ -1,7 +1,7 @@
-//! Time access, behind a trait so §4's determinism spike can swap the impl.
+//! Time access, behind a trait so the determinism spike can swap the impl.
 //!
 //! Nothing outside this module may call `Instant::now` or `tokio::time::sleep`
-//! directly; `xtask/check-clock.sh` enforces it.
+//! directly; `scripts/check-clock.sh` enforces it.
 
 use std::future::Future;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ impl Clock for RealClock {
 
 /// Nanoseconds elapsed from `origin`, saturating at zero.
 ///
-/// The log records every time as ns-since-run-start (§9.1), so this is the one
+/// The log records every time as ns-since-run-start, so this is the one
 /// conversion used everywhere.
 pub fn ns_since(origin: Instant, t: Instant) -> u64 {
     t.saturating_duration_since(origin).as_nanos() as u64
