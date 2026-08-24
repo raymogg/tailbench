@@ -1,0 +1,52 @@
+# §1.2: three components, three containers, disjoint pinned cores.
+#
+# Cores below assume a 12-core Linux host. Isolation comes from the cpuset plus
+# `isolcpus` on the host, NOT from containerisation -- a container without a
+# cpuset shares the host CPU pool and looks pinned while being nothing of the
+# kind.
+#
+# worker_threads must equal the cpuset width: a tokio runtime defaulting to
+# num_cpus sees the *host* count and oversubscribes, reintroducing exactly the
+# scheduling jitter this split exists to remove.
+
+x-build: &build
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+
+services:
+  mocks:
+    <<: *build
+    cpuset: "6-9"
+    environment:
+      TOKIO_WORKER_THREADS: "4"
+      TAILBENCH_CPUSET: "6-9"
+    volumes:
+      - sock:/run/tailbench
+      - ../scenarios:/scenarios:ro
+    command: >
+      mocks --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
+            --socket /run/tailbench/mocks.sock
+
+  # Container 3 (service under test) lands at step 4. Until then loadgen drives
+  # the mock cluster directly.
+  loadgen:
+    <<: *build
+    cpuset: "0-1"
+    environment:
+      TOKIO_WORKER_THREADS: "2"
+      TAILBENCH_CPUSET: "0-1"
+    volumes:
+      - sock:/run/tailbench
+      - ../scenarios:/scenarios:ro
+      - ../out:/out
+    depends_on:
+      - mocks
+    command: >
+      loadgen run --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
+                  --socket /run/tailbench/mocks.sock
+                  --out /out
+                  --repeat ${REPEAT:-1}
+
+volumes:
+  sock:

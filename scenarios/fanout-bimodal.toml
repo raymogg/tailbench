@@ -1,0 +1,35 @@
+# Bimodal svc_b: the cache-hit/miss shape where mean and p99 diverge hardest.
+[scenario]
+id         = "fanout-bimodal-001"
+seed       = 42
+duration_s = 20.0
+warmup_s   = 2.0
+
+[load]
+arrival  = "poisson"
+rate_rps = 300.0
+
+[slo]
+budget_ms = 120.0
+
+[[request_class]]
+name     = "cheap"
+weight   = 0.9
+requires = ["svc_a"]
+
+[[request_class]]
+name     = "expensive"
+weight   = 0.1
+requires = ["svc_a", "svc_b"]
+
+[[downstream]]
+id           = "svc_a"
+distribution = { kind = "lognormal", median_ms = 8.0, sigma = 0.6 }
+capacity     = 64
+timeout_ms   = 250.0
+
+[[downstream]]
+id           = "svc_b"
+distribution = { kind = "bimodal", fast_ms = 3.0, slow_ms = 180.0, p_slow = 0.02 }
+capacity     = 16
+timeout_ms   = 250.0
