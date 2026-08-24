@@ -1,0 +1,35 @@
+# Tiny scenario for validating the three-process wiring end to end.
+[scenario]
+id         = "smoke"
+seed       = 42
+duration_s = 1.0
+warmup_s   = 0.0
+
+[load]
+arrival  = "constant"
+rate_rps = 5.0
+
+[slo]
+budget_ms = 200.0
+
+[[request_class]]
+name     = "cheap"
+weight   = 0.6
+requires = ["svc_a"]
+
+[[request_class]]
+name     = "expensive"
+weight   = 0.4
+requires = ["svc_a", "svc_b"]
+
+[[downstream]]
+id           = "svc_a"
+distribution = { kind = "constant", ms = 5.0 }
+capacity     = 64
+timeout_ms   = 250.0
+
+[[downstream]]
+id           = "svc_b"
+distribution = { kind = "constant", ms = 20.0 }
+capacity     = 16
+timeout_ms   = 250.0

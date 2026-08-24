@@ -4,15 +4,14 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use tailbench::clock::{Clock, RealClock};
+use tailbench::clock::RealClock;
 use tailbench::config::Config;
-use tailbench::downstream::UdsClient;
+use tailbench::ready;
 use tailbench::load_generator::{self, RunOutcome};
 use tailbench::record::{RequestRecord, RunManifest};
 use tailbench::report::{self, Report, ReportInput};
-use tailbench::target::{FanoutTarget, SyntheticTarget};
+use tailbench::service_client::ServiceClient;
 use tailbench::timeline::Timeline;
 
 #[derive(Parser, Debug)]
@@ -34,9 +33,9 @@ enum Cmd {
         /// the noise denominator the admission filter divides by.
         #[arg(long, default_value_t = 1)]
         repeat: usize,
-        /// Unix socket the `mocks` process is listening on.
-        #[arg(long, default_value = "/run/tailbench/mocks.sock")]
-        socket: String,
+        /// Unix socket the `service` process is listening on.
+        #[arg(long, default_value = "/run/tailbench/service.sock")]
+        socket: PathBuf,
     },
     /// Aggregate an existing log.
     Report {
@@ -45,10 +44,12 @@ enum Cmd {
         #[arg(long)]
         config: PathBuf,
     },
-    /// check measured quantiles against the closed form.
+    /// Check measured quantiles against the closed form.
     Validate {
         #[arg(long)]
         config: PathBuf,
+        #[arg(long, default_value = "/run/tailbench/service.sock")]
+        socket: PathBuf,
     },
 }
 
@@ -63,11 +64,11 @@ async fn main() -> Result<()> {
             socket,
         } => cmd_run(&config, &out, repeat, &socket).await,
         Cmd::Report { log, config } => cmd_report(&log, &config),
-        Cmd::Validate { config } => cmd_validate(&config).await,
+        Cmd::Validate { config, socket } => cmd_validate(&config, &socket).await,
     }
 }
 
-async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &str) -> Result<()> {
+async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Result<()> {
     let cfg = Config::load(config)?;
     std::fs::create_dir_all(out)?;
 
@@ -135,43 +136,24 @@ async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &str) -> Resu
     Ok(())
 }
 
-async fn execute(cfg: &Config, socket: &str) -> Result<RunOutcome> {
-    wait_for_ready(socket).await?;
-    let client = UdsClient::connect(socket)
+async fn execute(cfg: &Config, socket: &Path) -> Result<RunOutcome> {
+    ready::wait_for(socket).await?;
+    let service = ServiceClient::connect(socket)
         .await
-        .with_context(|| format!("connecting to mocks at {socket}"))?;
-    let target = Arc::new(FanoutTarget {
-        downstreams: client,
-        seed: cfg.scenario.seed,
-    });
-    load_generator::run(cfg, Timeline::generate(cfg), target, RealClock).await
+        .with_context(|| format!("connecting to service at {}", socket.display()))?;
+    load_generator::run(cfg, Timeline::generate(cfg), service, RealClock).await
 }
 
-/// `depends_on` waits for container start, not readiness. Without this
-/// the first requests hit a cold or absent peer and poison the warmup.
-async fn wait_for_ready(socket: &str) -> Result<()> {
-    let ready = PathBuf::from(socket).with_extension("ready");
-    for _ in 0..300 {
-        if ready.exists() {
-            return Ok(());
-        }
-        let c = RealClock;
-        c.sleep_until(c.now() + std::time::Duration::from_millis(100))
-            .await;
-    }
-    anyhow::bail!("timed out waiting for mocks readiness at {}", ready.display())
-}
-
-async fn cmd_validate(config: &Path) -> Result<()> {
+/// Compare measured quantiles against the closed form.
+///
+/// The only check that measures against a *known answer* rather than against
+/// another measurement, so it is what catches a silently broken pipeline. Uses
+/// the same run path as everything else; needs a single-downstream scenario
+/// with plenty of capacity, so queueing does not distort the distribution.
+async fn cmd_validate(config: &Path, socket: &Path) -> Result<()> {
     let cfg = Config::load(config)?;
     let dist = cfg.downstreams[0].distribution.clone();
-    let timeline = Timeline::generate(&cfg).without_requirements();
-    let target = Arc::new(SyntheticTarget {
-        dist: dist.clone(),
-        clock: RealClock,
-        seed: cfg.scenario.seed,
-    });
-    let outcome = load_generator::run(&cfg, timeline, target, RealClock).await?;
+    let outcome = execute(&cfg, socket).await?;
     let rep = report::build(ReportInput {
         records: &outcome.records,
         warmup_s: cfg.scenario.warmup_s,
@@ -182,23 +164,19 @@ async fn cmd_validate(config: &Path) -> Result<()> {
 
     println!("{}", rep.summary());
     println!("measured vs analytic:");
-    println!("  {:<8} {:>10} {:>10} {:>10}", "q", "measured", "analytic", "delta");
+    println!("  {:<6} {:>10} {:>10} {:>10}", "q", "measured", "analytic", "delta");
     for (label, q, measured) in [
         ("p50", 0.50, rep.p50),
         ("p90", 0.90, rep.p90),
         ("p99", 0.99, rep.p99),
     ] {
-        match dist.analytic_quantile(q) {
-            Some(a) => println!(
-                "  {label:<8} {measured:>10.3} {a:>10.3} {:>+10.3}",
-                measured - a
-            ),
-            None => println!("  {label:<8} {measured:>10.3} {:>10} {:>10}", "n/a", "-"),
+        if let Some(a) = dist.analytic_quantile(q) {
+            println!("  {label:<6} {measured:>10.3} {a:>10.3} {:>+10.3}", measured - a);
         }
     }
     println!(
-        "\nExpect a small positive bias in every quantile: tokio timer\n\
-         granularity is ~1ms and sleeps overshoot."
+        "\nExpect a small positive bias: timer granularity is ~1ms, sleeps\n\
+         overshoot, and the two socket hops add their own latency."
     );
     Ok(())
 }

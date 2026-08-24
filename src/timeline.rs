@@ -76,9 +76,8 @@ impl Timeline {
         Timeline { requests, duration }
     }
 
-    /// Strip required-call sets. The synthetic validation target makes no
-    /// downstream calls -- it checks the timeline, dispatch loop, and measurement
-    /// points against a closed form, not the oracle.
+    /// Strip required-call sets, for tests that drive the dispatch loop
+    /// without a service or mocks behind it.
     pub fn without_requirements(mut self) -> Self {
         for r in &mut self.requests {
             r.required.clear();

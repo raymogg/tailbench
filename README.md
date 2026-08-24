@@ -9,20 +9,26 @@ services under open-loop load.
 cargo test
 ```
 
-A run needs two processes. Start the mock downstream cluster:
+A run needs three processes. The script starts them, runs one scenario, and
+shuts down:
+
+```bash
+scripts/run.sh scenarios/fanout-bimodal.toml
+scripts/run.sh scenarios/smoke.toml          # 5 requests, for checking wiring
+```
+
+To run them by hand — useful when you want `--verbose` on the service to see
+per-request logs:
 
 ```bash
 cargo run --release --bin mocks -- \
-  --config scenarios/fanout-bimodal.toml \
-  --socket /tmp/tailbench/mocks.sock
-```
+  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/mocks.sock &
 
-Then drive load against it:
+cargo run --release --bin service -- \
+  --listen /tmp/tb/service.sock --mocks /tmp/tb/mocks.sock --verbose &
 
-```bash
 cargo run --release --bin loadgen -- run \
-  --config scenarios/fanout-bimodal.toml \
-  --socket /tmp/tailbench/mocks.sock
+  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/service.sock
 ```
 
 Results land in `results/`: `requests.jsonl` (one record per request),
@@ -56,22 +62,29 @@ cd docker && SCENARIO=fanout-bimodal.toml docker compose up
 ## Architecture
 
 ```
-  loadgen (2 cores)          mocks (4 cores)
- ┌──────────────────┐       ┌──────────────────┐
- │ timeline         │       │ per-downstream   │
- │ dispatch loop    │──UDS─▶│ capacity + queue │
- │ oracle + records │◀──────│ seeded latency   │
- └──────────────────┘       └──────────────────┘
-         │
-         ▼
-   results/*.jsonl
+ loadgen (2 cores)      service (4 cores)      mocks (4 cores)
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ timeline        │    │ fan out to      │    │ capacity+queue  │
+│ dispatch loop   │─▶──│ required        │─▶──│ seeded latency  │
+│ oracle, records │─◀──│ downstreams     │─◀──│ digest          │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+        │                       ▲
+        ▼               the code under test
+  results/*.jsonl       (the only editable part)
 ```
 
-Separate processes on disjoint pinned cores. If the generator's timers shared a
+Three processes on disjoint pinned cores. If the generator's timers shared a
 tokio runtime with the code being measured, changing that code would change the
 measurement environment — a bias correlated with the thing under study, which no
 amount of averaging removes. There is only one run mode for the same reason: a
 second one would produce numbers that are not comparable to the first.
+
+`service` is deliberately the simplest thing that works: it calls every
+downstream a request requires, concurrently, and folds the replies into a
+digest. Fault primitives will be variations on it.
+
+The load generator never trusts it. Deadlines, outcome classification, and
+scoring all happen loadgen-side, so a service cannot influence its own verdict.
 
 ### Load generation is open-loop
 
@@ -114,14 +127,18 @@ distribution, capacity, and timeout. See `scenarios/` for two worked examples.
 ```
 src/
 ├── bin/loadgen.rs    # generator process + CLI
+├── bin/service.rs    # the service under test
 ├── bin/mocks.rs      # downstream cluster process
 ├── clock.rs          # Clock trait; the only place time is read
 ├── config.rs         # scenario TOML + validation
 ├── dist.rs           # latency distributions, with closed-form quantiles
 ├── rng.rs            # per-call-site RNG derivation
 ├── timeline.rs       # precomputed arrival schedule
-├── downstream.rs     # mock cluster + UDS client
-├── target.rs         # the interface under measurement
+├── downstream.rs     # mock cluster + client
+├── service_client.rs # loadgen's client for the service
+├── protocol.rs       # loadgen <-> service messages
+├── wire.rs           # length-prefixed framing
+├── ready.rs          # socket bind + readiness handshake
 ├── load_generator.rs # open-loop dispatch loop
 ├── oracle.rs         # deadlines, outcomes, expected digest
 ├── record.rs         # per-request record types

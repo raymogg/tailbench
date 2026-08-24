@@ -14,8 +14,9 @@ use tokio::sync::mpsc;
 use crate::clock::{ns_since, Clock};
 use crate::config::Config;
 use crate::oracle::Oracle;
+use crate::protocol::ServiceReply;
 use crate::record::{Outcome, RequestRecord};
-use crate::target::Target;
+use crate::service_client::ServiceClient;
 use crate::timeline::{ScheduledRequest, Timeline};
 
 /// dispatch later than this counts as a coordinated-omission event.
@@ -38,16 +39,12 @@ pub struct RunOutcome {
     pub coordinated_omission_failure: bool,
 }
 
-pub async fn run<T, C>(
+pub async fn run<C: Clock + Clone>(
     cfg: &Config,
     timeline: Timeline,
-    target: Arc<T>,
+    service: Arc<ServiceClient>,
     clock: C,
-) -> Result<RunOutcome>
-where
-    T: Target,
-    C: Clock + Clone,
-{
+) -> Result<RunOutcome> {
     let oracle = Arc::new(Oracle::new(cfg));
     let budget = Duration::from_secs_f64(cfg.slo.budget_ms / 1000.0);
     let warmup = Duration::from_secs_f64(cfg.scenario.warmup_s);
@@ -88,7 +85,7 @@ where
 
         let actual = clock.now();
         let req = req.clone();
-        let target = target.clone();
+        let service = service.clone();
         let oracle = oracle.clone();
         let clock2 = clock.clone();
         let tx = tx.clone();
@@ -98,7 +95,7 @@ where
         // failure this design exists to avoid. Covered by
         // `generator_is_open_loop`, so it cannot regress silently.
         tokio::spawn(async move {
-            let resp = target.handle(&req).await;
+            let resp = service.call(&req).await;
             let done = clock2.now();
             let rec = build_record(
                 &req, &oracle, resp, start, actual, done, budget, lateness,
@@ -148,7 +145,7 @@ where
 fn build_record(
     req: &ScheduledRequest,
     oracle: &Oracle,
-    resp: Result<crate::target::Response>,
+    resp: Result<ServiceReply>,
     start: Instant,
     actual: Instant,
     done: Instant,
@@ -163,8 +160,8 @@ fn build_record(
 
     let (outcome, digest_ok, calls_met) =
         oracle.classify(req, &resp, completion_ns, deadline_ns);
-    let (digest, spans) = match resp {
-        Ok(r) => (r.digest, r.spans),
+    let (digest, spans) = match &resp {
+        Ok(r) => (r.digest, r.spans.clone()),
         Err(_) => (None, Vec::new()),
     };
 

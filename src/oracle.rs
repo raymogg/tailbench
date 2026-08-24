@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::config::Config;
 use crate::record::{CallOutcome, CallSpan, Outcome};
 use crate::rng::{call_digest, fold_digest};
-use crate::target::Response;
+use crate::protocol::ServiceReply;
 use crate::timeline::ScheduledRequest;
 
 pub struct Oracle {
@@ -70,7 +70,7 @@ impl Oracle {
     pub fn classify(
         &self,
         req: &ScheduledRequest,
-        resp: &Result<Response, anyhow::Error>,
+        resp: &Result<ServiceReply, anyhow::Error>,
         completion_ns: u64,
         deadline_ns: u64,
     ) -> (Outcome, Option<bool>, bool) {
@@ -78,8 +78,8 @@ impl Oracle {
             Ok(r) => r,
             Err(_) => return (Outcome::Error, None, false),
         };
-        if let Some(f) = resp.failure {
-            return (f, None, false);
+        if resp.error.is_some() {
+            return (Outcome::Error, None, false);
         }
 
         let calls_met = self.required_calls_met(req, &resp.spans);

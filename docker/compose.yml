@@ -1,6 +1,9 @@
 # three components, three containers, disjoint pinned cores.
 #
-# Cores below assume a 12-core Linux host. Isolation comes from the cpuset plus
+# Three processes: loadgen measures, service is the code under test, mocks
+# provides its dependencies. Cores assume a 12-core Linux host.
+#
+# Isolation comes from the cpuset plus
 # `isolcpus` on the host, NOT from containerisation -- a container without a
 # cpuset shares the host CPU pool and looks pinned while being nothing of the
 # kind.
@@ -28,8 +31,20 @@ services:
       mocks --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
             --socket /run/tailbench/mocks.sock
 
-  # Container 3 (service under test) lands at step 4. Until then loadgen drives
-  # the mock cluster directly.
+  service:
+    <<: *build
+    cpuset: "2-5"
+    environment:
+      TOKIO_WORKER_THREADS: "4"
+      TAILBENCH_CPUSET: "2-5"
+    volumes:
+      - sock:/run/tailbench
+    depends_on:
+      - mocks
+    command: >
+      service --listen /run/tailbench/service.sock
+              --mocks /run/tailbench/mocks.sock
+
   loadgen:
     <<: *build
     cpuset: "0-1"
@@ -41,10 +56,10 @@ services:
       - ../scenarios:/scenarios:ro
       - ../results:/results
     depends_on:
-      - mocks
+      - service
     command: >
       loadgen run --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
-                  --socket /run/tailbench/mocks.sock
+                  --socket /run/tailbench/service.sock
                   --out /results
                   --repeat ${REPEAT:-1}
 
