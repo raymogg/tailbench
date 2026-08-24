@@ -61,7 +61,7 @@ impl Target for SlowTarget {
 /// must not be able to regress silently.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn generator_is_open_loop() {
-    let cfg = Config::from_str(CFG).unwrap();
+    let cfg = Config::from_toml_str(CFG).unwrap();
     let timeline = Timeline::generate(&cfg).without_requirements();
     let n = timeline.len();
     let dispatched = Arc::new(AtomicUsize::new(0));
@@ -84,7 +84,7 @@ async fn generator_is_open_loop() {
 /// up in the numbers instead of vanishing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn latency_measured_from_intended_dispatch() {
-    let cfg = Config::from_str(CFG).unwrap();
+    let cfg = Config::from_toml_str(CFG).unwrap();
     let timeline = Timeline::generate(&cfg).without_requirements();
     let target = Arc::new(SlowTarget {
         delay: Duration::from_millis(200),
@@ -167,7 +167,7 @@ impl Target for ScriptedTarget {
 }
 
 async fn run_mode(mode: Mode) -> Vec<Outcome> {
-    let cfg = Config::from_str(CFG).unwrap();
+    let cfg = Config::from_toml_str(CFG).unwrap();
     let timeline = Timeline::generate(&cfg);
     let out = load_generator::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
         .await
@@ -217,11 +217,11 @@ async fn late_but_correct_is_expired() {
 /// rewards giving up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn expiring_is_worse_than_being_slow() {
-    let cfg = Config::from_str(CFG).unwrap();
+    let cfg = Config::from_toml_str(CFG).unwrap();
     let penalty = cfg.slo.penalty_ms();
 
     let score = |mode: Mode| async move {
-        let cfg = Config::from_str(CFG).unwrap();
+        let cfg = Config::from_toml_str(CFG).unwrap();
         let timeline = Timeline::generate(&cfg);
         let out = load_generator::run(&cfg, timeline, Arc::new(ScriptedTarget { mode }), RealClock)
             .await

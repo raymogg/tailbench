@@ -1,151 +1,144 @@
 # tailbench
 
-An experimental environment for p99 optimization of async services. Phase 1,
-steps 1–2: open-loop load generator, mock downstream cluster, metrics.
-
-Full design: [`docs/phase1-step1-2-spec.md`](docs/phase1-step1-2-spec.md).
-Section references below (§N) point there.
-
-## Status
-
-| Spec step | State |
-|---|---|
-| 1. Clock, config, distributions | done, tested (§10.5) |
-| 2. Records, aggregation | done, tested (§9.3) |
-| 3. Load generator + synthetic target | done, tested (§10.1, §10.2) |
-| 4. Oracle — deadlines, outcomes, digest | done, tested (§10.6) |
-| 5. UDS transport, `mocks` binary | done; transport cost (§10.7) not yet measured |
-| 6. Docker, cpusets, env capture | compose written; **unvalidated — needs the Linux host** |
-| 7. `--repeat`, calibration | done; penalty sweep (§10.6) outstanding |
-
-Not started: fault primitives, scenario sampler, integrity gates, admission
-filter, splits.
+An experimental environment for measuring and optimizing p99 latency of async
+services under open-loop load.
 
 ## Quick start
 
 ```bash
-cargo test                                        # 18 tests
-./scripts/check-clock.sh                          # §1.1 enforcement
-
-# In-process mocks -- fast to iterate, never authoritative (§1.2).
-cargo run --release --bin loadgen -- \
-  run --config scenarios/fanout-bimodal.toml --out out
-
-# Split processes over a Unix socket, as authoritative runs use.
-cargo run --release --bin mocks -- \
-  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/mocks.sock &
-cargo run --release --bin loadgen -- \
-  run --config scenarios/fanout-bimodal.toml --socket /tmp/tb/mocks.sock --out out
-
-# §10.1: measured quantiles vs the closed form.
-cargo run --release --bin loadgen -- validate --config scenarios/validate-lognormal.toml
+cargo test
 ```
 
-`--repeat N` reports replay std. dev. of `cvar_99` and `p99` — the noise
-denominator §7's `signal/noise ≥ 5` gate divides by.
+A run needs two processes. Start the mock downstream cluster:
 
-## Measured so far
+```bash
+cargo run --release --bin mocks -- \
+  --config scenarios/fanout-bimodal.toml \
+  --socket /tmp/tailbench/mocks.sock
+```
 
-All numbers below are from **unpinned arm64 macOS** and are therefore
-non-authoritative (§1.2.1). They are recorded because they already answer two
-design questions, and because the Linux numbers should be compared against them.
+Then drive load against it:
 
-### Harness measures what it should (§10.1)
+```bash
+cargo run --release --bin loadgen -- run \
+  --config scenarios/fanout-bimodal.toml \
+  --socket /tmp/tailbench/mocks.sock
+```
 
-Synthetic target, lognormal(median 8ms, σ 0.6), 300rps, 20s:
+Results land in `results/`: `requests.jsonl` (one record per request),
+`report.json`, and `run.json` (config, seed, git SHA, environment).
 
-| q | measured | analytic | delta |
-|---|---|---|---|
-| p50 | 10.24 ms | 8.00 ms | +2.24 |
-| p90 | 19.25 ms | 17.26 ms | +1.99 |
-| p99 | 33.20 ms | 32.31 ms | +0.90 |
+Useful flags:
 
-The positive bias is tokio timer overshoot, as predicted. Worth noting it is
-roughly *constant additive* rather than proportional — so it distorts fast
-requests far more than slow ones, which matters for §13's open question about
-`fast_ms = 3` sitting near timer resolution.
+```bash
+--repeat 5     # run N times, report replay std. dev. of cvar_99 and p99
+--out DIR      # default: results/
+```
 
-### CVaR is the lower-variance statistic (§6.5.1)
+Two other subcommands:
 
-5 replays, `fanout-bimodal`, in-process:
+```bash
+# Re-aggregate an existing log without re-running.
+cargo run --release --bin loadgen -- report \
+  --log results/requests.jsonl --config scenarios/fanout-bimodal.toml
 
-| statistic | mean | replay sd | sd / mean |
-|---|---|---|---|
-| `cvar_99` | 346.85 ms | **0.082 ms** | 0.02% |
-| `p99` | 38.10 ms | 0.220 ms | 0.58% |
+# Check measured quantiles against the closed form. No mocks process needed.
+cargo run --release --bin loadgen -- validate \
+  --config scenarios/validate-lognormal.toml
+```
 
-§6.5.1 predicted CVaR would have lower replay variance and therefore be the
-better denominator for §7's admission gate. It holds here by 2.7× in absolute
-terms and ~25× as a coefficient of variation — on the *noisiest* environment
-available, which is the conservative direction.
+Under Docker, with pinned cores:
 
-Not yet tested against Pareto `alpha ≤ 2`, which §6.5.1 flags as where CVaR
-could plausibly lose. §10.4 must cover every distribution before this is
-treated as settled.
+```bash
+cd docker && SCENARIO=fanout-bimodal.toml docker compose up
+```
 
-### The macOS environment cannot meet the dispatch gate (§1.2.1, §10.3)
+## Architecture
 
-Late-dispatch rate against a near-zero-latency target:
+```
+  loadgen (2 cores)          mocks (4 cores)
+ ┌──────────────────┐       ┌──────────────────┐
+ │ timeline         │       │ per-downstream   │
+ │ dispatch loop    │──UDS─▶│ capacity + queue │
+ │ oracle + records │◀──────│ seeded latency   │
+ └──────────────────┘       └──────────────────┘
+         │
+         ▼
+   results/*.jsonl
+```
 
-| rate | over 1ms threshold |
-|---|---|
-| 50 rps | 3.40% |
-| 150 rps | 6.51% |
-| 300 rps | 10.34% |
-| 600 rps | 11.29% |
+Separate processes on disjoint pinned cores. If the generator's timers shared a
+tokio runtime with the code being measured, changing that code would change the
+measurement environment — a bias correlated with the thing under study, which no
+amount of averaging removes. There is only one run mode for the same reason: a
+second one would produce numbers that are not comparable to the first.
 
-3.4% late at 50 rps — where the dispatch loop has 20ms of slack per request —
-is not a capacity ceiling. It is macOS timer granularity, and it is why §1.2.1
-requires a Linux host. The `MAX_LATE_DISPATCH_FRAC = 0.001` gate correctly
-fails these runs rather than certifying them.
+### Load generation is open-loop
 
-**The genuine generator capacity ceiling is therefore still unmeasured.** §10.3
-must be re-run on the Linux host; only there does the number mean anything.
+The arrival schedule is computed before the run starts and dispatched on a fixed
+timeline regardless of service state. A closed-loop generator issues request N+1
+only after N completes, so an overloaded service automatically receives less
+load and its tail looks healthy — which would make every measurement here
+meaningless. Latency is measured from *intended* dispatch, so generator lag
+shows up in the numbers instead of hiding.
 
-## What is enforced, not just documented
+### Determinism
 
-- **Open-loop dispatch.** `generator_is_open_loop` drives a 500ms handler at
-  200rps and asserts every scheduled request is still dispatched. A closed-loop
-  implementation fails immediately.
-- **Latency from intended dispatch.** Generator lag lands in the measurement
-  instead of vanishing.
-- **Unserved requests are logged.** A request that never completes still
-  produces a `NeverServed` record, so shedding cannot hide in the log format.
-- **Failures enter the percentile** at `PENALTY_MS`.
-  `expiring_is_worse_than_being_slow` asserts the property directly.
-- **Skipped work and fabricated digests are `Incorrect`**, even when on time.
-- **Clock discipline.** `scripts/check-clock.sh` fails the build on any direct
-  `Instant::now` or `sleep` outside `src/clock.rs`.
-- **Non-authoritative runs say so**, from an `environment` field derived from
-  whether a cpuset was actually applied — not from a documentation note.
+Every downstream latency draw comes from an RNG derived from
+`(seed, request_id, downstream_id, attempt)`. A request's latency is therefore
+the same number regardless of what else is in flight, and a service that retries
+cannot shift the sequence for every other call.
+
+### What counts as success
+
+A request is `Ok` only if it completes before its deadline, made every call its
+class requires, and returned the digest the oracle expects. Everything else —
+`Expired`, `Incorrect`, `Error`, `Dropped`, `NeverServed` — is a failure and
+enters the latency population at `penalty_ms`, so failing cannot improve the
+tail. Outcome rates are always reported alongside; a p99 without them is
+uninterpretable.
+
+`cvar_99` (mean of the worst 1%) is the primary metric, with p99 reported for
+interpretability. p99 is a single order statistic and is flat with respect to
+the penalty below 1% failures, then equal to it above — CVaR responds
+proportionally throughout.
+
+### Scenarios
+
+One TOML file fully determines a run. `[[request_class]]` sets what fraction of
+requests need which downstreams; `[[downstream]]` sets each service's latency
+distribution, capacity, and timeout. See `scenarios/` for two worked examples.
 
 ## Layout
 
 ```
 src/
-├── bin/loadgen.rs   # container 1: generator + recorder + CLI
-├── bin/mocks.rs      # container 2: downstream cluster over UDS
+├── bin/loadgen.rs    # generator process + CLI
+├── bin/mocks.rs      # downstream cluster process
 ├── clock.rs          # Clock trait; the only place time is read
-├── config.rs         # scenario TOML + §3.1 validation
-├── dist.rs           # 6 distributions with closed-form quantiles
-├── rng.rs            # per-call-site derivation (§5.3)
-├── timeline.rs       # precomputed arrivals (§7.1)
-├── downstream.rs     # Downstream trait, in-process + UDS impls
-├── target.rs         # Target trait, fanout + synthetic targets
+├── config.rs         # scenario TOML + validation
+├── dist.rs           # latency distributions, with closed-form quantiles
+├── rng.rs            # per-call-site RNG derivation
+├── timeline.rs       # precomputed arrival schedule
+├── downstream.rs     # mock cluster + UDS client
+├── target.rs         # the interface under measurement
 ├── load_generator.rs # open-loop dispatch loop
-├── oracle.rs         # deadlines, outcomes, expected digest (§6)
+├── oracle.rs         # deadlines, outcomes, expected digest
 ├── record.rs         # per-request record types
 └── report.rs         # percentiles, CVaR, outcome rates
 ```
 
-`docker/compose.yml` defines the cpusets. It has not been run — validating it
-is the first task on the Linux host.
+`scripts/check-clock.sh` fails the build on any direct `Instant::now` or `sleep`
+outside `clock.rs`.
 
-## Next
+## Measurement environment
 
-1. Resolve base-image digests and run compose on the Linux host.
-2. Re-run §10.3 (generator capacity) and §10.4 (replay noise) there. Those are
-   the numbers that decide whether the §4 determinism spike is optional.
-3. §10.7: measure what the UDS boundary costs at p99. The in-process impl is
-   retained as the differential fixture.
-4. §10.6 penalty sweep on CVaR, then freeze the multiplier across the task set.
+Authoritative runs need a Linux host with real cpusets. macOS has no CPU
+affinity mechanism on Apple Silicon, and Docker there pins only to VM vCPUs the
+host scheduler still migrates freely.
+
+Runs detect this and stamp `environment` in `run.json`; anything not
+`linux-pinned` is reported as non-authoritative. Locally you will see the
+coordinated-omission gate fail runs — macOS timer granularity puts ~7% of
+dispatches over the 1ms threshold, against a gate of 0.1%. That is the gate
+working, not a bug.

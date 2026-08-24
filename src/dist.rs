@@ -197,6 +197,10 @@ fn sample_standard_normal(rng: &mut ChaCha8Rng) -> f64 {
 
 /// Acklam's inverse normal CDF. Accurate to ~1.15e-9 relative, which is far
 /// tighter than the sampling error at the run sizes.
+// Constants are Acklam's as published. Kept digit-for-digit rather than
+// trimmed to f64 precision: they are the reference the analytic quantiles are
+// checked against, and matching the source exactly is worth more than the lint.
+#[allow(clippy::excessive_precision)]
 pub fn inverse_standard_normal_cdf(p: f64) -> f64 {
     assert!((0.0..1.0).contains(&p));
     const A: [f64; 6] = [

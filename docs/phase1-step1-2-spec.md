@@ -99,9 +99,15 @@ transport's contribution to measured p99 and CVaR. If it turns out large
 relative to the naive→expert gap, revisit before building four more primitives.
 
 Use **Unix domain sockets** over a shared volume rather than TCP: lower latency,
-tighter tail, no TCP stack, no Nagle, no port exhaustion. Keep the transport
-behind the same `Downstream` trait so a TCP impl can be swapped in if the mocks
-ever need to live on another host.
+tighter tail, no TCP stack, no Nagle, no port exhaustion.
+
+**Only one run mode ships.** An earlier draft kept an in-process `Downstream`
+impl alongside the UDS one, as a development convenience and as the differential
+fixture for §10.7. That is now removed: two modes produce two sets of numbers
+that are not comparable, and the cheaper one is the one people reach for by
+habit. The cost is that §10.7 can no longer difference in-process against UDS —
+measure the transport with a null-latency probe (`transport_probe`) instead, and
+state that figure rather than a difference.
 
 **A benefit worth naming:** this makes the Phase 1 spec's §6 integrity boundary
 real. "The model may only change the service crate" stops being a convention

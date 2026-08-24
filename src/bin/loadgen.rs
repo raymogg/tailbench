@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tailbench::clock::{Clock, RealClock};
 use tailbench::config::Config;
-use tailbench::downstream::{InProcessCluster, UdsClient};
+use tailbench::downstream::UdsClient;
 use tailbench::load_generator::{self, RunOutcome};
 use tailbench::record::{RequestRecord, RunManifest};
 use tailbench::report::{self, Report, ReportInput};
@@ -28,17 +28,15 @@ enum Cmd {
     Run {
         #[arg(long)]
         config: PathBuf,
-        #[arg(long, default_value = "out")]
+        #[arg(long, default_value = "results")]
         out: PathBuf,
         /// Repeat N times and report replay std. dev. of cvar_99 and p99 --
         /// the noise denominator the admission filter divides by.
         #[arg(long, default_value_t = 1)]
         repeat: usize,
-        /// Talk to the `mocks` binary over this socket. Without it the mock
-        /// cluster runs in-process, which is faster to iterate on but shares a
-        /// runtime with the target and is never authoritative.
-        #[arg(long)]
-        socket: Option<String>,
+        /// Unix socket the `mocks` process is listening on.
+        #[arg(long, default_value = "/run/tailbench/mocks.sock")]
+        socket: String,
     },
     /// Aggregate an existing log.
     Report {
@@ -63,18 +61,13 @@ async fn main() -> Result<()> {
             out,
             repeat,
             socket,
-        } => cmd_run(&config, &out, repeat, socket.as_deref()).await,
+        } => cmd_run(&config, &out, repeat, &socket).await,
         Cmd::Report { log, config } => cmd_report(&log, &config),
         Cmd::Validate { config } => cmd_validate(&config).await,
     }
 }
 
-async fn cmd_run(
-    config: &Path,
-    out: &Path,
-    repeat: usize,
-    socket: Option<&str>,
-) -> Result<()> {
+async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &str) -> Result<()> {
     let cfg = Config::load(config)?;
     std::fs::create_dir_all(out)?;
 
@@ -142,29 +135,16 @@ async fn cmd_run(
     Ok(())
 }
 
-async fn execute(cfg: &Config, socket: Option<&str>) -> Result<RunOutcome> {
-    let timeline = Timeline::generate(cfg);
-    match socket {
-        Some(path) => {
-            wait_for_ready(path).await?;
-            let client = UdsClient::connect(path)
-                .await
-                .with_context(|| format!("connecting to mocks at {path}"))?;
-            let target = Arc::new(FanoutTarget {
-                downstreams: client,
-                seed: cfg.scenario.seed,
-            });
-            load_generator::run(cfg, timeline, target, RealClock).await
-        }
-        None => {
-            let cluster = Arc::new(InProcessCluster::new(cfg, RealClock));
-            let target = Arc::new(FanoutTarget {
-                downstreams: cluster,
-                seed: cfg.scenario.seed,
-            });
-            load_generator::run(cfg, timeline, target, RealClock).await
-        }
-    }
+async fn execute(cfg: &Config, socket: &str) -> Result<RunOutcome> {
+    wait_for_ready(socket).await?;
+    let client = UdsClient::connect(socket)
+        .await
+        .with_context(|| format!("connecting to mocks at {socket}"))?;
+    let target = Arc::new(FanoutTarget {
+        downstreams: client,
+        seed: cfg.scenario.seed,
+    });
+    load_generator::run(cfg, Timeline::generate(cfg), target, RealClock).await
 }
 
 /// `depends_on` waits for container start, not readiness. Without this

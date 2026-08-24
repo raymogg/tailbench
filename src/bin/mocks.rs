@@ -12,7 +12,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use tailbench::clock::RealClock;
 use tailbench::config::Config;
-use tailbench::downstream::{CallRequest, InProcessCluster, TaggedReply};
+use tailbench::downstream::{CallRequest, MockCluster, TaggedReply};
 
 #[derive(Parser, Debug)]
 #[command(about = "tailbench mock downstream cluster")]
@@ -27,7 +27,7 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     let cfg = Config::load(&args.config)?;
-    let cluster = Arc::new(InProcessCluster::new(&cfg, RealClock));
+    let cluster = Arc::new(MockCluster::new(&cfg, RealClock));
 
     if args.socket.exists() {
         std::fs::remove_file(&args.socket)?;
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
 /// Handling inline would serialize every call on a connection, manufacturing a
 /// bottleneck that is not in the scenario -- the same class of error as
 /// closed-loop load generation.
-async fn serve(stream: UnixStream, cluster: Arc<InProcessCluster<RealClock>>) -> Result<()> {
+async fn serve(stream: UnixStream, cluster: Arc<MockCluster<RealClock>>) -> Result<()> {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4096);
 

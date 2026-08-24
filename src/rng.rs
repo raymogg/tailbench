@@ -53,7 +53,7 @@ pub fn call_digest(seed: u64, request_id: u64, downstream_id: u16) -> u64 {
 /// Fold per-call digests into a response digest. Order-independent: call order
 /// is deliberately unconstrained, because constraining it would forbid P4's fix
 /// (making a serialized fan-out parallel).
-pub fn fold_digest(nonce: u64, call_digests: &mut Vec<u64>) -> u64 {
+pub fn fold_digest(nonce: u64, call_digests: &mut [u64]) -> u64 {
     call_digests.sort_unstable();
     let mut acc = splitmix64(nonce);
     for d in call_digests.iter() {

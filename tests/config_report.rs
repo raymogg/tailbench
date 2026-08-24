@@ -30,7 +30,7 @@ timeout_ms = 200.0
 
 #[test]
 fn base_config_is_valid() {
-    assert!(Config::from_str(&base()).is_ok());
+    assert!(Config::from_toml_str(&base()).is_ok());
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn rejects_bad_configs() {
         ),
     ];
     for (name, text) in cases {
-        assert!(Config::from_str(&text).is_err(), "{name} should be rejected");
+        assert!(Config::from_toml_str(&text).is_err(), "{name} should be rejected");
     }
 }
 
@@ -91,7 +91,7 @@ fn cvar_responds_to_failures_where_p99_does_not() {
     let good: Vec<f64> = (0..995).map(|_| 10.0).collect();
     let with_failures = |k: usize, penalty: f64| {
         let mut v = good.clone();
-        v.extend(std::iter::repeat(penalty).take(k));
+        v.extend(std::iter::repeat_n(penalty, k));
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         v
     };

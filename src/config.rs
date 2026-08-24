@@ -97,7 +97,7 @@ impl Config {
         Ok(cfg)
     }
 
-    pub fn from_str(text: &str) -> Result<Self> {
+    pub fn from_toml_str(text: &str) -> Result<Self> {
         let cfg: Config = toml::from_str(text)?;
         cfg.validate()?;
         Ok(cfg)

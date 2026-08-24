@@ -6,7 +6,7 @@ use rand_chacha::ChaCha8Rng;
 use std::sync::Arc;
 
 use crate::clock::Clock;
-use crate::downstream::{span_of, CallCtx, Downstream};
+use crate::downstream::{span_of, CallCtx, UdsClient};
 use crate::dist::Distribution;
 use crate::record::{CallSpan, Outcome};
 use crate::rng::{call_rng, fold_digest};
@@ -32,12 +32,12 @@ pub trait Target: Send + Sync + 'static {
 ///
 /// This is the "expert-shaped" reference behaviour: correct, unbounded
 /// concurrency, no faults. Fault primitives (step 4+) are variations on it.
-pub struct FanoutTarget<D: Downstream + 'static> {
-    pub downstreams: Arc<D>,
+pub struct FanoutTarget {
+    pub downstreams: Arc<UdsClient>,
     pub seed: u64,
 }
 
-impl<D: Downstream + 'static> Target for FanoutTarget<D> {
+impl Target for FanoutTarget {
     async fn handle(&self, req: &ScheduledRequest) -> Result<Response> {
         let mut spans = Vec::with_capacity(req.required.len());
         let mut digests = Vec::with_capacity(req.required.len());

@@ -1,9 +1,10 @@
-//! The `Downstream` trait and its two impls.
+//! The mock downstream cluster and the client that reaches it.
 //!
-//! `InProcess` is the development and differential impl. `UdsClient`
-//! talks to the `mocks` binary over a Unix socket, which is the configuration
-//! authoritative runs use -- separate processes on disjoint pinned cores, so
-//! the service under test is the only meaningful user of its runtime.
+//! `MockCluster` runs inside the `mocks` process. Everything else talks to it
+//! through `UdsClient` over a Unix socket -- separate processes on disjoint
+//! pinned cores, so the service under test is the only meaningful user of its
+//! runtime. There is deliberately no in-process shortcut: a second mode would
+//! produce numbers that are not comparable to the real one.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -48,14 +49,6 @@ pub struct TaggedReply {
     pub reply: CallReply,
 }
 
-pub trait Downstream: Send + Sync {
-    fn call(
-        &self,
-        name: &str,
-        ctx: CallCtx,
-    ) -> impl std::future::Future<Output = Result<CallReply>> + Send;
-}
-
 // ---------------------------------------------------------------------------
 // In-process cluster
 // ---------------------------------------------------------------------------
@@ -66,15 +59,18 @@ struct Slot {
     permits: Arc<Semaphore>,
 }
 
-/// The mock cluster. Deterministic given `(seed, request_id,
-/// downstream_id)` and independent of wall clock and arrival order.
-pub struct InProcessCluster<C: Clock> {
+/// The mock downstream cluster. Lives in the `mocks` process; the service
+/// under test reaches it only through `UdsClient`.
+///
+/// Deterministic given `(seed, request_id, downstream_id)` and independent of
+/// wall clock and arrival order.
+pub struct MockCluster<C: Clock> {
     slots: Vec<Slot>,
     seed: u64,
     clock: C,
 }
 
-impl<C: Clock> InProcessCluster<C> {
+impl<C: Clock> MockCluster<C> {
     pub fn new(cfg: &Config, clock: C) -> Self {
         let slots = cfg
             .downstreams
@@ -86,7 +82,7 @@ impl<C: Clock> InProcessCluster<C> {
                 permits: Arc::new(Semaphore::new(d.capacity)),
             })
             .collect();
-        InProcessCluster {
+        MockCluster {
             slots,
             seed: cfg.scenario.seed,
             clock,
@@ -151,12 +147,6 @@ impl<C: Clock> InProcessCluster<C> {
     }
 }
 
-impl<C: Clock> Downstream for InProcessCluster<C> {
-    async fn call(&self, name: &str, ctx: CallCtx) -> Result<CallReply> {
-        self.call_inner(name, ctx).await
-    }
-}
-
 // ---------------------------------------------------------------------------
 // UDS client
 // ---------------------------------------------------------------------------
@@ -210,10 +200,9 @@ impl UdsClient {
             next_tag: AtomicU64::new(0),
         }))
     }
-}
 
-impl Downstream for UdsClient {
-    async fn call(&self, name: &str, ctx: CallCtx) -> Result<CallReply> {
+    /// Issue one downstream call and wait for its reply.
+    pub async fn call(&self, name: &str, ctx: CallCtx) -> Result<CallReply> {
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending.lock().await.insert(tag, tx);
@@ -246,8 +235,8 @@ pub fn span_of(name: &str, ctx: CallCtx, reply: &CallReply) -> CallSpan {
 }
 
 /// Round-trip latency of the transport itself, for the baseline.
-pub async fn transport_probe<D: Downstream, C: Clock>(
-    d: &D,
+pub async fn transport_probe<C: Clock>(
+    d: &UdsClient,
     clock: &C,
     name: &str,
     n: usize,

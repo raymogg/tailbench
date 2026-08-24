@@ -39,13 +39,13 @@ services:
     volumes:
       - sock:/run/tailbench
       - ../scenarios:/scenarios:ro
-      - ../out:/out
+      - ../results:/results
     depends_on:
       - mocks
     command: >
       loadgen run --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
                   --socket /run/tailbench/mocks.sock
-                  --out /out
+                  --out /results
                   --repeat ${REPEAT:-1}
 
 volumes:
