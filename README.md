@@ -51,37 +51,24 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
   results/*.jsonl       (the only editable part)
 ```
 
-- **Three processes, disjoint pinned cores.** If the generator's timers shared a
-  tokio runtime with the code being measured, changing that code would change
-  the measurement environment — a bias correlated with the thing under study,
-  which no amount of averaging removes. One run mode only, for the same reason:
-  a second would produce numbers not comparable to the first.
+- **Separate processes, pinned cores.** Sharing a runtime with the code under
+  test would let changes to it move the measurement.
 
-- **Load generation is open-loop.** The arrival schedule is computed before the
-  run and dispatched on a fixed timeline regardless of service state. A
-  closed-loop generator issues request N+1 only after N completes, so an
-  overloaded service receives less load and its tail looks healthy. Latency is
-  measured from *intended* dispatch, so generator lag shows up rather than
-  hiding.
+- **Open-loop load.** Arrivals are scheduled up front and dispatched regardless
+  of service state; a closed-loop generator would slow down under overload and
+  hide the tail. Latency is measured from *intended* dispatch.
 
-- **Determinism.** Every downstream latency draw comes from an RNG derived from
-  `(seed, request_id, downstream_id, attempt)`. A request's latency is the same
-  number regardless of what else is in flight, and a service that retries cannot
-  shift the sequence for every other call.
+- **Deterministic downstreams.** Each latency draw comes from
+  `(seed, request_id, downstream_id, attempt)`, so it does not depend on what
+  else is in flight.
 
-- **Success is defined harness-side.** A request is `Ok` only if it completes
-  before its deadline, made every call its class requires, and returned the
-  digest the oracle expects. Everything else — `Expired`, `Incorrect`, `Error`,
-  `Dropped`, `NeverServed` — enters the latency population at `penalty_ms`, so
-  failing cannot improve the tail. The service never sees deadlines or scoring
-  and so cannot influence its own verdict.
+- **Harness-side scoring.** `Ok` means on time, required calls made, digest
+  correct. Everything else enters the latency population at `penalty_ms`, so
+  failing cannot improve the tail.
 
-- **`cvar_99` is the primary metric**, with p99 reported alongside. p99 is a
-  single order statistic: flat with respect to `penalty_ms` below 1% failures,
-  equal to it above. CVaR (mean of the worst 1%) responds proportionally
-  throughout. Outcome rates are always reported — a p99 without them is
-  uninterpretable, since a run can post an excellent p99 by failing 0.9% of
-  requests.
+- **`cvar_99` is the primary metric**, p99 reported alongside. p99 is flat in
+  `penalty_ms` below 1% failures and equal to it above; CVaR responds
+  throughout. Outcome rates always accompany both.
 
 ## Writing a scenario
 
