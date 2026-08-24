@@ -4,9 +4,9 @@
 # behaviour between admission runs and the eval that cites them, invalidating
 # the numbers silently. Tags are used here only so this builds today; resolve
 # them on the Linux host with:
-#   docker pull rust:1.92-bookworm && docker inspect --format='{{index .RepoDigests 0}}' rust:1.92-bookworm
+#   docker pull rust:1.98-bookworm && docker inspect --format='{{index .RepoDigests 0}}' rust:1.98-bookworm
 # This MUST be done before any admission run.
-FROM rust:1.92-bookworm AS build
+FROM rust:1.98-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
