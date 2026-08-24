@@ -70,10 +70,7 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
   `penalty_ms` below 1% failures and equal to it above; CVaR responds
   throughout. Outcome rates always accompany both.
 
-## Writing a scenario
-
-One TOML file fully determines a run. Same file plus same seed reproduces the
-same numbers.
+## Scenario Config
 
 ```toml
 [scenario]
@@ -117,15 +114,11 @@ timeout_ms   = 250.0
 ### The parameters worth understanding
 
 **`budget_ms`** is a per-request deadline. A response arriving after
-`intended_dispatch + budget_ms` is worth nothing — it scores `Expired`, exactly
-as if it never arrived. This is what makes the environment about tail latency
-rather than average latency: being slow on 1% of requests is a real failure, not
-a rounding error.
+`intended_dispatch + budget_ms` results in `Expired`, exactly
+as if it never arrived.
 
 **`penalty_ms`** is the latency value a failed request contributes to the
-percentile, defaulting to `10 × budget_ms`. Failures cannot be excluded from the
-population — that would make dropping the slow tail the easiest optimization.
-The multiplier is an exchange rate: how much added latency one failure is worth.
+percentile, defaulting to `10 × budget_ms`.
 It must exceed `budget_ms`, or quitting would beat completing slowly.
 
 **`weight` and `requires`** are what make requests heterogeneous. `requires` is a
@@ -133,9 +126,7 @@ It must exceed `budget_ms`, or quitting would beat completing slowly.
 without penalty, and call order is unconstrained. Both matter: fixing either
 would forbid legitimate optimizations.
 
-**`capacity`** is how many calls a downstream serves concurrently. Beyond it,
-calls queue, and queueing time counts toward the call's latency and its timeout.
-This is how a downstream saturates.
+**`capacity`** is how many calls a downstream serves concurrently.
 
 **`warmup_s`** requests are discarded on *intended* dispatch time, so the
 boundary does not move with service behaviour.
@@ -162,17 +153,7 @@ downstream, out-of-domain distribution parameters.
 ## Measurement environment
 
 Authoritative runs need a host that supports real CPU pinning: Linux with
-cpusets, ideally `isolcpus` on the boot line and no hypervisor in the way. Bare
-metal is preferable — a dedicated mini-PC, or bare-metal cloud such as Hetzner
-or Equinix. A regular cloud VM works but is compromised: the hypervisor
-reintroduces the migration jitter that pinning exists to remove.
-
-macOS cannot do this at all. Apple Silicon has no CPU affinity API, and Docker
-there pins only to VM vCPUs the host scheduler still migrates freely.
-
-Runs detect this and stamp `environment` in `run.json`; anything not
-`linux-pinned` is reported as non-authoritative. On macOS you will also see the
-coordinated-omission gate fail runs — timer granularity puts ~7% of dispatches
+cpusets, ideally `isolcpus` on the boot line and no hypervisor in the way.
 over the 1ms threshold against a gate of 0.1%. That is the gate working.
 
 Under Docker with cpusets applied:
