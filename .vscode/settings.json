@@ -1,0 +1,13 @@
+{
+  // Check all targets so tests and binaries are analysed, matching CI.
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": true,
+  // The traits in clock.rs / downstream.rs / target.rs use return-position
+  // `impl Trait` in trait (RPITIT). rust-analyzer's support for it is still
+  // incomplete and it logs "inference diagnostic in desugared expr" when its
+  // inference engine gives up inside async desugaring. Harmless -- cargo
+  // check/build/test are clean -- but it can degrade completions there.
+  // Turning off type-inference-based diagnostics silences the noise without
+  // losing real errors, which still come from cargo check above.
+  "rust-analyzer.diagnostics.experimental.enable": false
+}

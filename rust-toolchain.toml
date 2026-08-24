@@ -1,0 +1,5 @@
+# Pinned so rust-analyzer and cargo agree, and so builds are reproducible
+# across machines. Same argument as digest-pinning the Docker base images.
+[toolchain]
+channel = "1.92.0"
+components = ["rustfmt", "clippy", "rust-src"]
