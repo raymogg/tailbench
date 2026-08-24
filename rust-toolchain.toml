@@ -2,4 +2,16 @@
 # across machines. Same argument as digest-pinning the Docker base images.
 [toolchain]
 channel = "1.92.0"
-components = ["rustfmt", "clippy", "rust-src"]
+# rust-analyzer is a component so the editor uses the version matching this
+# toolchain rather than the one bundled with the VSCode extension, which is
+# what produced the "toolchain too old" warning.
+#
+# Note the tradeoff: the toolchain's rust-analyzer (1.92.0, Dec 2025) is
+# OLDER than the extension's bundle. RPITIT inference -- which the Clock,
+# Downstream, and Target traits all rely on -- is an area rust-analyzer has
+# been actively improving, so this may make editor support there slightly
+# worse rather than better. If completions around those traits degrade, drop
+# "rust-analyzer" from this list and set
+#   "rust-analyzer.server.path": null
+# in .vscode/settings.json to go back to the bundled build.
+components = ["rustfmt", "clippy", "rust-src", "rust-analyzer"]
