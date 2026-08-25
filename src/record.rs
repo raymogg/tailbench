@@ -102,6 +102,9 @@ impl RequestRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunManifest {
     pub scenario_id: String,
+    /// Path of the scenario file, as given on the command line. `scenario_id`
+    /// is a label the file sets about itself; this is what was actually run.
+    pub scenario_path: String,
     pub seed: u64,
     pub git_sha: Option<String>,
     /// `linux-pinned` or `unpinned`. Anything not `linux-pinned` is

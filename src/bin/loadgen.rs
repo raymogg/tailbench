@@ -98,7 +98,12 @@ async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Res
             &run_dir.join(format!("requests{suffix}.jsonl")),
             &outcome.records,
         )?;
-        write_manifest(&run_dir.join(format!("run{suffix}.json")), &cfg, &outcome)?;
+        write_manifest(
+            &run_dir.join(format!("run{suffix}.json")),
+            &cfg,
+            config,
+            &outcome,
+        )?;
         std::fs::write(
             run_dir.join(format!("report{suffix}.json")),
             serde_json::to_string_pretty(&rep)?,
@@ -217,9 +222,15 @@ fn write_log(path: &Path, records: &[RequestRecord]) -> Result<()> {
     Ok(())
 }
 
-fn write_manifest(path: &Path, cfg: &Config, outcome: &RunOutcome) -> Result<()> {
+fn write_manifest(
+    path: &Path,
+    cfg: &Config,
+    scenario_path: &Path,
+    outcome: &RunOutcome,
+) -> Result<()> {
     let m = RunManifest {
         scenario_id: cfg.scenario.id.clone(),
+        scenario_path: scenario_path.display().to_string(),
         seed: cfg.scenario.seed,
         git_sha: git_sha(),
         environment: environment(),

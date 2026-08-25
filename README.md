@@ -14,6 +14,10 @@ scripts/run.sh scenarios/smoke.toml          # 5 requests, checks the wiring
 scripts/run.sh scenarios/fanout-bimodal.toml
 ```
 
+The scenario argument is required. Nothing in the run path defaults to a
+scenario — a run that silently used the wrong config still produces a
+plausible report, and you would only find out afterwards.
+
 The script starts all three processes, runs one scenario, and shuts down.
 
 Each run creates its own directory, `results/<UTC timestamp>-<scenario id>/`,
@@ -223,5 +227,9 @@ over the 1ms threshold against a gate of 0.1%. That is the gate working.
 Under Docker with cpusets applied:
 
 ```bash
-cd docker && SCENARIO=fanout-bimodal.toml docker compose up
+cd docker && SCENARIO=fanout-bimodal.toml REPEAT=1 docker compose up
 ```
+
+`SCENARIO` and `REPEAT` are required; compose refuses to start without them.
+Both containers read the same `SCENARIO`, so loadgen and downstreams cannot
+end up on different configs.

@@ -2,15 +2,15 @@
 [scenario]
 id         = "fanout-bimodal-001"
 seed       = 42
-duration_s = 20.0
+duration_s = 60.0
 warmup_s   = 2.0
 
 [load]
 arrival  = "poisson"
-rate_rps = 300.0
+rate_rps = 500.0
 
 [slo]
-budget_ms = 120.0
+budget_ms = 40.0
 
 [[request_class]]
 name     = "cheap"

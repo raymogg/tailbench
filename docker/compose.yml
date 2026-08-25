@@ -8,6 +8,10 @@
 # cpuset shares the host CPU pool and looks pinned while being nothing of the
 # kind.
 #
+# SCENARIO and REPEAT are required (`:?`), not defaulted. Both containers read
+# the same SCENARIO, so it cannot differ between them -- a run where loadgen and
+# downstreams used different configs would still produce a report.
+#
 # worker_threads must equal the cpuset width: a tokio runtime defaulting to
 # num_cpus sees the *host* count and oversubscribes, reintroducing exactly the
 # scheduling jitter this split exists to remove.
@@ -28,7 +32,7 @@ services:
       - sock:/run/tailbench
       - ../scenarios:/scenarios:ro
     command: >
-      downstreams --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
+      downstreams --config /scenarios/${SCENARIO:?set SCENARIO=<file.toml>; no default, so a run cannot silently use the wrong config}
                   --socket /run/tailbench/downstreams.sock
 
   program:
@@ -58,10 +62,10 @@ services:
     depends_on:
       - program
     command: >
-      loadgen run --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
+      loadgen run --config /scenarios/${SCENARIO:?set SCENARIO=<file.toml>; no default, so a run cannot silently use the wrong config}
                   --socket /run/tailbench/program.sock
                   --out /results
-                  --repeat ${REPEAT:-1}
+                  --repeat ${REPEAT:?set REPEAT=<n> (1 for a single run)}
 
 volumes:
   sock:
