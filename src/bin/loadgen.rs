@@ -11,7 +11,7 @@ use tailbench::ready;
 use tailbench::load_generator::{self, RunOutcome};
 use tailbench::record::{RequestRecord, RunManifest};
 use tailbench::report::{self, Report, ReportInput};
-use tailbench::program_client::ProgramClient;
+use tailbench::loadgen_client::LoadgenClient;
 use tailbench::timeline::Timeline;
 
 #[derive(Parser, Debug)]
@@ -149,10 +149,10 @@ async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Res
 
 async fn execute(cfg: &Config, socket: &Path) -> Result<RunOutcome> {
     ready::wait_for(socket).await?;
-    let service = ProgramClient::connect(socket)
+    let program = LoadgenClient::connect(socket)
         .await
         .with_context(|| format!("connecting to program at {}", socket.display()))?;
-    load_generator::run(cfg, Timeline::generate(cfg), service, RealClock).await
+    load_generator::run(cfg, Timeline::generate(cfg), program, RealClock).await
 }
 
 /// Compare measured quantiles against the closed form.

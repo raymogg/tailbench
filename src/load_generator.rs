@@ -16,7 +16,7 @@ use crate::config::Config;
 use crate::oracle::Oracle;
 use crate::protocol::ProgramReply;
 use crate::record::{Outcome, RequestRecord};
-use crate::program_client::ProgramClient;
+use crate::loadgen_client::LoadgenClient;
 use crate::timeline::{ScheduledRequest, Timeline};
 
 /// dispatch later than this counts as a coordinated-omission event.
@@ -42,7 +42,7 @@ pub struct RunOutcome {
 pub async fn run<C: Clock + Clone>(
     cfg: &Config,
     timeline: Timeline,
-    service: Arc<ProgramClient>,
+    program: Arc<LoadgenClient>,
     clock: C,
 ) -> Result<RunOutcome> {
     let oracle = Arc::new(Oracle::new(cfg));
@@ -85,7 +85,7 @@ pub async fn run<C: Clock + Clone>(
 
         let actual = clock.now();
         let req = req.clone();
-        let service = service.clone();
+        let program = program.clone();
         let oracle = oracle.clone();
         let clock2 = clock.clone();
         let tx = tx.clone();
@@ -95,7 +95,7 @@ pub async fn run<C: Clock + Clone>(
         // failure this design exists to avoid. Covered by
         // `generator_is_open_loop`, so it cannot regress silently.
         tokio::spawn(async move {
-            let resp = service.call(&req).await;
+            let resp = program.call(&req).await;
             let done = clock2.now();
             let rec = build_record(
                 &req, &oracle, resp, start, actual, done, budget, lateness,

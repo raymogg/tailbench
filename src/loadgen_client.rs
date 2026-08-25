@@ -1,8 +1,8 @@
-//! Load generator's client for the program under test.
+//! The load generator's client for the program under test.
 //!
-//! Harness apparatus, not part of the code under test: this is how the
-//! measurement talks to the program, so optimizing it would be tampering
-//! with the instrument.
+//! Named for the side that owns it: this runs inside `loadgen`, and is how the
+//! measurement talks to the program. Harness apparatus, not code under test --
+//! optimizing it would be tampering with the instrument.
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -18,13 +18,13 @@ use crate::wire::{read_msg, write_msg};
 
 /// One connection, multiplexed by tag: replies may arrive out of order, since
 /// the program handles requests concurrently.
-pub struct ProgramClient {
+pub struct LoadgenClient {
     writer: Mutex<tokio::io::WriteHalf<UnixStream>>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<ProgramReply>>>>,
     next_tag: AtomicU64,
 }
 
-impl ProgramClient {
+impl LoadgenClient {
     pub async fn connect(socket: &Path) -> Result<Arc<Self>> {
         let stream = UnixStream::connect(socket).await?;
         let (mut rd, wr) = tokio::io::split(stream);
@@ -40,7 +40,7 @@ impl ProgramClient {
             }
         });
 
-        Ok(Arc::new(ProgramClient {
+        Ok(Arc::new(LoadgenClient {
             writer: Mutex::new(wr),
             pending,
             next_tag: AtomicU64::new(0),

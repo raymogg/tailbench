@@ -18,4 +18,4 @@ pub mod report;
 pub mod protocol;
 pub mod ready;
 pub mod wire;
-pub mod program_client;
+pub mod loadgen_client;

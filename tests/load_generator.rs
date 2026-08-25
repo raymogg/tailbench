@@ -12,7 +12,7 @@ use tailbench::protocol::{ProgramReply, ProgramRequest};
 use tailbench::record::{CallOutcome, CallSpan, Outcome};
 use tailbench::report::{self, ReportInput};
 use tailbench::rng::{call_digest, fold_digest};
-use tailbench::program_client::ProgramClient;
+use tailbench::loadgen_client::LoadgenClient;
 use tailbench::timeline::Timeline;
 use tailbench::wire::{read_msg, write_msg};
 
@@ -58,7 +58,7 @@ enum Mode {
 
 /// Stand-in for the service process. Speaks the real protocol over a real
 /// socket, so the tests exercise the same path production uses.
-async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::PathBuf, Arc<ProgramClient>) {
+async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::PathBuf, Arc<LoadgenClient>) {
     // A monotonic counter, not a timestamp: tests share a process and run on
     // several threads, and two starting in the same instant read the same
     // nanosecond, collide on the directory, and fail `bind` with EEXIST.
@@ -99,7 +99,7 @@ async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::Pat
         }
     });
 
-    let client = ProgramClient::connect(&sock).await.unwrap();
+    let client = LoadgenClient::connect(&sock).await.unwrap();
     (sock, client)
 }
 

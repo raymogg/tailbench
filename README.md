@@ -95,13 +95,9 @@ Everything else is measurement apparatus:
 | Process | Files | Role |
 |---|---|---|
 | `program` | `src/bin/program.rs` | **The code under test. Edit this.** |
-| `loadgen` | `src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `program_client.rs` | Schedules arrivals, scores outcomes |
+| `loadgen` | `src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `loadgen_client.rs` | Schedules arrivals, scores outcomes |
 | `downstreams` | `src/bin/downstreams.rs`, `downstream.rs` | Simulates dependencies with seeded latency |
 | shared | `protocol.rs`, `wire.rs`, `record.rs`, `config.rs`, `rng.rs`, `clock.rs`, `distributions.rs`, `ready.rs` | Wire types, config, determinism |
-
-Note `program_client.rs` is apparatus, despite the name: it is how the *load
-generator* talks to the program. Editing it changes the ruler, not the thing
-being measured.
 
 ### The rules
 
