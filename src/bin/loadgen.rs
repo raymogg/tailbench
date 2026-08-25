@@ -11,7 +11,7 @@ use tailbench::ready;
 use tailbench::load_generator::{self, RunOutcome};
 use tailbench::record::{RequestRecord, RunManifest};
 use tailbench::report::{self, Report, ReportInput};
-use tailbench::service_client::ServiceClient;
+use tailbench::program_client::ProgramClient;
 use tailbench::timeline::Timeline;
 
 #[derive(Parser, Debug)]
@@ -27,14 +27,16 @@ enum Cmd {
     Run {
         #[arg(long)]
         config: PathBuf,
+        /// Parent directory for run directories; each run creates its own
+        /// timestamped subdirectory beneath it.
         #[arg(long, default_value = "results")]
         out: PathBuf,
         /// Repeat N times and report replay std. dev. of cvar_99 and p99 --
         /// the noise denominator the admission filter divides by.
         #[arg(long, default_value_t = 1)]
         repeat: usize,
-        /// Unix socket the `service` process is listening on.
-        #[arg(long, default_value = "/run/tailbench/service.sock")]
+        /// Unix socket the `program` process is listening on.
+        #[arg(long, default_value = "/run/tailbench/program.sock")]
         socket: PathBuf,
     },
     /// Aggregate an existing log.
@@ -48,7 +50,7 @@ enum Cmd {
     Validate {
         #[arg(long)]
         config: PathBuf,
-        #[arg(long, default_value = "/run/tailbench/service.sock")]
+        #[arg(long, default_value = "/run/tailbench/program.sock")]
         socket: PathBuf,
     },
 }
@@ -70,7 +72,8 @@ async fn main() -> Result<()> {
 
 async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Result<()> {
     let cfg = Config::load(config)?;
-    std::fs::create_dir_all(out)?;
+    let run_dir = new_run_dir(out, &cfg.scenario.id)?;
+    println!("run directory: {}", run_dir.display());
 
     let mut cvars = Vec::new();
     let mut p99s = Vec::new();
@@ -91,10 +94,13 @@ async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Res
         } else {
             String::new()
         };
-        write_log(&out.join(format!("requests{suffix}.jsonl")), &outcome.records)?;
-        write_manifest(&out.join(format!("run{suffix}.json")), &cfg, &outcome)?;
+        write_log(
+            &run_dir.join(format!("requests{suffix}.jsonl")),
+            &outcome.records,
+        )?;
+        write_manifest(&run_dir.join(format!("run{suffix}.json")), &cfg, &outcome)?;
         std::fs::write(
-            out.join(format!("report{suffix}.json")),
+            run_dir.join(format!("report{suffix}.json")),
             serde_json::to_string_pretty(&rep)?,
         )?;
 
@@ -138,9 +144,9 @@ async fn cmd_run(config: &Path, out: &Path, repeat: usize, socket: &Path) -> Res
 
 async fn execute(cfg: &Config, socket: &Path) -> Result<RunOutcome> {
     ready::wait_for(socket).await?;
-    let service = ServiceClient::connect(socket)
+    let service = ProgramClient::connect(socket)
         .await
-        .with_context(|| format!("connecting to service at {}", socket.display()))?;
+        .with_context(|| format!("connecting to program at {}", socket.display()))?;
     load_generator::run(cfg, Timeline::generate(cfg), service, RealClock).await
 }
 
@@ -272,4 +278,71 @@ fn stddev(xs: &[f64]) -> f64 {
     }
     let m = mean(xs);
     (xs.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (xs.len() - 1) as f64).sqrt()
+}
+
+/// Create a fresh directory for one run: `<out>/<UTC timestamp>-<scenario id>`.
+///
+/// Timestamp first so lexical order is chronological order. Each invocation
+/// gets its own directory, so no run ever overwrites another and a series can
+/// be compared after the fact. `--repeat` replays stay *inside* one directory:
+/// they are one experiment measuring replay noise, not N separate runs.
+fn new_run_dir(out: &Path, scenario_id: &str) -> Result<PathBuf> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let stamp = utc_stamp(secs);
+    let slug: String = scenario_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+
+    // Two runs can start within the same second; suffix rather than clobber.
+    for attempt in 0..100 {
+        let name = match attempt {
+            0 => format!("{stamp}-{slug}"),
+            n => format!("{stamp}-{slug}-{n}"),
+        };
+        let dir = out.join(name);
+        match std::fs::create_dir_all(&dir) {
+            // create_dir_all succeeds on an existing directory, so check
+            // emptiness rather than trusting the return.
+            Ok(()) if dir.read_dir()?.next().is_none() => return Ok(dir),
+            Ok(()) => continue,
+            Err(e) => return Err(e).context(format!("creating {}", dir.display())),
+        }
+    }
+    anyhow::bail!(
+        "could not find a free run directory under {}",
+        out.display()
+    )
+}
+
+/// `YYYYMMDD-HHMMSS` in UTC from a Unix timestamp.
+///
+/// Days-since-epoch to civil date, via Howard Hinnant's algorithm. UTC only,
+/// which is why this is a dozen lines instead of a calendar dependency.
+fn utc_stamp(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let tod = secs % 86_400;
+
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        y,
+        m,
+        d,
+        tod / 3600,
+        (tod % 3600) / 60,
+        tod % 60
+    )
 }

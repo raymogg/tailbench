@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start mocks + service, run one scenario, shut down.
+# Start downstreams + program, run one scenario, shut down.
 #
 #   scripts/run.sh [scenario.toml] [extra loadgen flags...]
 set -euo pipefail
@@ -18,10 +18,10 @@ trap cleanup EXIT
 
 cargo build --release --quiet
 
-./target/release/mocks --config "$SCENARIO" --socket "$RUN_DIR/mocks.sock" &
-./target/release/service --listen "$RUN_DIR/service.sock" --mocks "$RUN_DIR/mocks.sock" &
+./target/release/downstreams --config "$SCENARIO" --socket "$RUN_DIR/downstreams.sock" &
+./target/release/program --listen "$RUN_DIR/program.sock" --downstreams "$RUN_DIR/downstreams.sock" &
 
 ./target/release/loadgen run \
   --config "$SCENARIO" \
-  --socket "$RUN_DIR/service.sock" \
+  --socket "$RUN_DIR/program.sock" \
   "$@"

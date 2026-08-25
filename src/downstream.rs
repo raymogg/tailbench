@@ -1,8 +1,8 @@
 //! The mock downstream cluster and the client that reaches it.
 //!
-//! `MockCluster` runs inside the `mocks` process. Everything else talks to it
+//! `DownstreamCluster` runs inside the `downstreams` process. Everything else talks to it
 //! through `UdsClient` over a Unix socket -- separate processes on disjoint
-//! pinned cores, so the service under test is the only meaningful user of its
+//! pinned cores, so the program under test is the only meaningful user of its
 //! runtime. There is deliberately no in-process shortcut: a second mode would
 //! produce numbers that are not comparable to the real one.
 
@@ -59,18 +59,18 @@ struct Slot {
     permits: Arc<Semaphore>,
 }
 
-/// The mock downstream cluster. Lives in the `mocks` process; the service
+/// The mock downstream cluster. Lives in the `downstreams` process; the program
 /// under test reaches it only through `UdsClient`.
 ///
 /// Deterministic given `(seed, request_id, downstream_id)` and independent of
 /// wall clock and arrival order.
-pub struct MockCluster<C: Clock> {
+pub struct DownstreamCluster<C: Clock> {
     slots: Vec<Slot>,
     seed: u64,
     clock: C,
 }
 
-impl<C: Clock> MockCluster<C> {
+impl<C: Clock> DownstreamCluster<C> {
     pub fn new(cfg: &Config, clock: C) -> Self {
         let slots = cfg
             .downstreams
@@ -82,7 +82,7 @@ impl<C: Clock> MockCluster<C> {
                 permits: Arc::new(Semaphore::new(d.capacity)),
             })
             .collect();
-        MockCluster {
+        DownstreamCluster {
             slots,
             seed: cfg.scenario.seed,
             clock,

@@ -3,6 +3,9 @@
 An experimental environment for measuring and optimizing p99 latency of async
 services under open-loop load.
 
+**`src/bin/program.rs` is the only file an agent may edit.** Everything else is
+measurement apparatus. See [What gets optimized](#what-gets-optimized).
+
 ## Quick start
 
 ```bash
@@ -12,50 +15,55 @@ scripts/run.sh scenarios/fanout-bimodal.toml
 ```
 
 The script starts all three processes, runs one scenario, and shuts down.
-Results land in `results/`: `requests.jsonl` (one record per request),
-`report.json`, and `run.json` (config, seed, git SHA, environment).
 
-To run the processes by hand — useful for `--verbose` on the service, which
+Each run creates its own directory, `results/<UTC timestamp>-<scenario id>/`,
+holding `requests.jsonl` (one record per request), `report.json`, and `run.json`
+(config, seed, git SHA, environment). Nothing is overwritten, and the timestamp
+prefix sorts chronologically, so runs can be compared over time. `--repeat N`
+writes its replays into a single directory as `requests.0.jsonl`, `.1`, ... —
+they are one experiment measuring replay noise, not N separate runs.
+
+To run the processes by hand — useful for `--verbose` on the program, which
 logs each request as it routes:
 
 ```bash
-cargo run --release --bin mocks -- \
-  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/mocks.sock &
+cargo run --release --bin downstreams -- \
+  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/downstreams.sock &
 
-cargo run --release --bin service -- \
-  --listen /tmp/tb/service.sock --mocks /tmp/tb/mocks.sock --verbose &
+cargo run --release --bin program -- \
+  --listen /tmp/tb/program.sock --downstreams /tmp/tb/downstreams.sock --verbose &
 
 cargo run --release --bin loadgen -- run \
-  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/service.sock
+  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/program.sock
 ```
 
 Other subcommands:
 
 ```bash
 loadgen run --repeat 5    # N runs; reports replay std. dev. of cvar_99 and p99
-loadgen report --log results/requests.jsonl --config <scenario>
+loadgen report --log results/<run>/requests.jsonl --config <scenario>
 loadgen validate --config <scenario>   # measured quantiles vs the closed form
 ```
 
 ## Architecture
 
 ```
- loadgen (2 cores)      service (4 cores)      mocks (4 cores)
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ timeline        │    │ fan out to      │    │ capacity+queue  │
-│ dispatch loop   │─▶──│ required        │─▶──│ seeded latency  │
-│ oracle, records │─◀──│ downstreams     │─◀──│ digest          │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-        │                       ▲
-        ▼               the code under test
-  results/*.jsonl       (the only editable part)
+ loadgen (2 cores)     program (4 cores)    downstreams (4 cores)
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│ timeline        │   │ fan out to      │   │ capacity+queue  │
+│ dispatch loop   │─▶─│ required        │─▶─│ seeded latency  │
+│ oracle, records │─◀─│ downstreams     │─◀─│ digest          │
+└─────────────────┘   └─────────────────┘   └─────────────────┘
+        │                      ▲
+        ▼              src/bin/program.rs
+  results/<run>/       (the only editable file)
 ```
 
 - **Separate processes, pinned cores.** Sharing a runtime with the code under
   test would let changes to it move the measurement.
 
 - **Open-loop load.** Arrivals are scheduled up front and dispatched regardless
-  of service state; a closed-loop generator would slow down under overload and
+  of program state; a closed-loop generator would slow down under overload and
   hide the tail. Latency is measured from *intended* dispatch.
 
 - **Deterministic downstreams.** Each latency draw comes from
@@ -69,6 +77,62 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
 - **`cvar_99` is the primary metric**, p99 reported alongside. p99 is flat in
   `penalty_ms` below 1% failures and equal to it above; CVaR responds
   throughout. Outcome rates always accompany both.
+
+## What gets optimized
+
+`src/bin/program.rs` is the code under test, and the only file open to
+optimization. It receives a request, calls the downstreams that request
+requires, folds their replies into a digest, and returns it before the deadline.
+The shipped version is the correct, fault-free baseline: every required call
+made concurrently, no artificial limit.
+
+Everything else is measurement apparatus:
+
+| Process | Files | Role |
+|---|---|---|
+| `program` | `src/bin/program.rs` | **The code under test. Edit this.** |
+| `loadgen` | `src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `program_client.rs` | Schedules arrivals, scores outcomes |
+| `downstreams` | `src/bin/downstreams.rs`, `downstream.rs` | Simulates dependencies with seeded latency |
+| shared | `protocol.rs`, `wire.rs`, `record.rs`, `config.rs`, `rng.rs`, `clock.rs`, `distributions.rs`, `ready.rs` | Wire types, config, determinism |
+
+Note `program_client.rs` is apparatus, despite the name: it is how the *load
+generator* talks to the program. Editing it changes the ruler, not the thing
+being measured.
+
+### The rules
+
+Fixed, and not optimizable away:
+
+- **Every downstream in `requires` needs at least one successful call.** The
+  digest is folded from values obtainable only by actually calling them, so
+  skipping work and fabricating an answer scores `Incorrect`, not `Ok`.
+- **A reply after the deadline scores `Expired`**, correct or not. Past
+  `intended_dispatch + budget_ms` the response has no value.
+- **Failure cannot beat slowness.** Every scheduled request contributes to the
+  latency population — anything not `Ok` enters at `penalty_ms`, which exceeds
+  `budget_ms` by construction. A percentile over survivors only would be
+  trivially gamed by dropping the slow ones.
+
+Open, and the point of the exercise:
+
+- **Fan-out strategy** — concurrent, sequential, staged, prioritized.
+- **Retries and hedging.** `requires` is a *minimum*: extra calls are legal and
+  call order is unconstrained, so a second attempt at a slow downstream is
+  allowed. Each `attempt` draws a fresh latency.
+- **Timeouts**, and what to do when one fires.
+
+Swapping the concurrent `join_all` for sequential awaits is fault primitive P4 —
+correct, much worse at the tail, and the kind of thing this measures.
+
+### Verifying a change
+
+```bash
+scripts/run.sh scenarios/fanout-bimodal.toml
+```
+
+`cvar_99` is the number to move; the outcome rates beneath it say whether the
+improvement was real or bought by failing requests. A run that reports
+`RUN FAILED` or any nonzero `incorrect` did not earn its latency.
 
 ## Scenario Config
 

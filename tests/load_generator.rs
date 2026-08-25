@@ -8,11 +8,11 @@ use std::time::Duration;
 use tailbench::clock::{Clock, RealClock};
 use tailbench::config::Config;
 use tailbench::load_generator;
-use tailbench::protocol::{ServiceReply, ServiceRequest};
+use tailbench::protocol::{ProgramReply, ProgramRequest};
 use tailbench::record::{CallOutcome, CallSpan, Outcome};
 use tailbench::report::{self, ReportInput};
 use tailbench::rng::{call_digest, fold_digest};
-use tailbench::service_client::ServiceClient;
+use tailbench::program_client::ProgramClient;
 use tailbench::timeline::Timeline;
 use tailbench::wire::{read_msg, write_msg};
 
@@ -58,14 +58,15 @@ enum Mode {
 
 /// Stand-in for the service process. Speaks the real protocol over a real
 /// socket, so the tests exercise the same path production uses.
-async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::PathBuf, Arc<ServiceClient>) {
+async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::PathBuf, Arc<ProgramClient>) {
+    // A monotonic counter, not a timestamp: tests share a process and run on
+    // several threads, and two starting in the same instant read the same
+    // nanosecond, collide on the directory, and fail `bind` with EEXIST.
+    static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "tailbench-test-{}-{:?}",
+        "tailbench-test-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let sock = dir.join("service.sock");
@@ -79,7 +80,7 @@ async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::Pat
             let dispatched = dispatched.clone();
             tokio::spawn(async move {
                 let (mut rd, mut wr) = tokio::io::split(stream);
-                let (tx, mut rx) = tokio::sync::mpsc::channel::<ServiceReply>(4096);
+                let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgramReply>(4096);
                 tokio::spawn(async move {
                     while let Some(r) = rx.recv().await {
                         if write_msg(&mut wr, &r).await.is_err() {
@@ -87,7 +88,7 @@ async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::Pat
                         }
                     }
                 });
-                while let Ok(req) = read_msg::<_, ServiceRequest>(&mut rd).await {
+                while let Ok(req) = read_msg::<_, ProgramRequest>(&mut rd).await {
                     dispatched.fetch_add(1, Ordering::Relaxed);
                     let tx = tx.clone();
                     tokio::spawn(async move {
@@ -98,11 +99,11 @@ async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::Pat
         }
     });
 
-    let client = ServiceClient::connect(&sock).await.unwrap();
+    let client = ProgramClient::connect(&sock).await.unwrap();
     (sock, client)
 }
 
-async fn reply_for(mode: Mode, req: ServiceRequest) -> ServiceReply {
+async fn reply_for(mode: Mode, req: ProgramRequest) -> ProgramReply {
     let clock = RealClock;
     let span = CallSpan {
         downstream_id: "svc_a".into(),
@@ -127,7 +128,7 @@ async fn reply_for(mode: Mode, req: ServiceRequest) -> ServiceReply {
             (Some(good), vec![span])
         }
     };
-    ServiceReply {
+    ProgramReply {
         tag: req.tag,
         digest,
         spans,

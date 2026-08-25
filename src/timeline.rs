@@ -77,7 +77,7 @@ impl Timeline {
     }
 
     /// Strip required-call sets, for tests that drive the dispatch loop
-    /// without a service or mocks behind it.
+    /// without a program or downstreams behind it.
     pub fn without_requirements(mut self) -> Self {
         for r in &mut self.requests {
             r.required.clear();

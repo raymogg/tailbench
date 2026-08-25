@@ -1,7 +1,7 @@
 //! Mock downstream cluster server (container 2).
 //!
 //! Runs on its own pinned cores so its sleeps and timers do not share a tokio
-//! runtime with the service under test.
+//! runtime with the program under test.
 
 use anyhow::Result;
 use clap::Parser;
@@ -11,7 +11,7 @@ use tokio::net::UnixStream;
 
 use tailbench::clock::RealClock;
 use tailbench::config::Config;
-use tailbench::downstream::{CallRequest, MockCluster, TaggedReply};
+use tailbench::downstream::{CallRequest, DownstreamCluster, TaggedReply};
 use tailbench::ready;
 use tailbench::wire::{read_msg, write_msg};
 
@@ -20,7 +20,7 @@ use tailbench::wire::{read_msg, write_msg};
 struct Args {
     #[arg(long)]
     config: PathBuf,
-    #[arg(long, default_value = "/run/tailbench/mocks.sock")]
+    #[arg(long, default_value = "/run/tailbench/downstreams.sock")]
     socket: PathBuf,
 }
 
@@ -28,12 +28,12 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     let cfg = Config::load(&args.config)?;
-    let cluster = Arc::new(MockCluster::new(&cfg, RealClock));
+    let cluster = Arc::new(DownstreamCluster::new(&cfg, RealClock));
 
     let listener = ready::bind(&args.socket)?;
 
     eprintln!(
-        "mocks: listening on {} ({} downstreams)",
+        "downstreams: listening on {} ({} downstreams)",
         args.socket.display(),
         cfg.downstreams.len()
     );
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
             if let Err(e) = serve(stream, cluster).await {
                 // Client disconnect at end of run is normal, not an error.
                 if !ready::is_disconnect(&e) {
-                    eprintln!("mocks: connection error: {e}");
+                    eprintln!("downstreams: connection error: {e}");
                 }
             }
         });
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 /// Handling inline would serialize every call on a connection, manufacturing a
 /// bottleneck that is not in the scenario -- the same class of error as
 /// closed-loop load generation.
-async fn serve(stream: UnixStream, cluster: Arc<MockCluster<RealClock>>) -> Result<()> {
+async fn serve(stream: UnixStream, cluster: Arc<DownstreamCluster<RealClock>>) -> Result<()> {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<TaggedReply>(4096);
 

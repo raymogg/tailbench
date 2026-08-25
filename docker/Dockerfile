@@ -14,5 +14,6 @@ RUN cargo build --release --bins
 
 FROM debian:bookworm-slim
 COPY --from=build /src/target/release/loadgen /usr/local/bin/loadgen
-COPY --from=build /src/target/release/mocks /usr/local/bin/mocks
+COPY --from=build /src/target/release/downstreams /usr/local/bin/downstreams
+COPY --from=build /src/target/release/program /usr/local/bin/program
 RUN mkdir -p /run/tailbench /out

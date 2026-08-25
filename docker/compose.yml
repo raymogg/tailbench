@@ -1,7 +1,7 @@
 # three components, three containers, disjoint pinned cores.
 #
-# Three processes: loadgen measures, service is the code under test, mocks
-# provides its dependencies. Cores assume a 12-core Linux host.
+# Three processes: loadgen measures, program is the code under test,
+# downstreams provides its dependencies. Cores assume a 12-core Linux host.
 #
 # Isolation comes from the cpuset plus
 # `isolcpus` on the host, NOT from containerisation -- a container without a
@@ -18,7 +18,7 @@ x-build: &build
     dockerfile: docker/Dockerfile
 
 services:
-  mocks:
+  downstreams:
     <<: *build
     cpuset: "6-9"
     environment:
@@ -28,10 +28,10 @@ services:
       - sock:/run/tailbench
       - ../scenarios:/scenarios:ro
     command: >
-      mocks --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
-            --socket /run/tailbench/mocks.sock
+      downstreams --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
+                  --socket /run/tailbench/downstreams.sock
 
-  service:
+  program:
     <<: *build
     cpuset: "2-5"
     environment:
@@ -40,10 +40,10 @@ services:
     volumes:
       - sock:/run/tailbench
     depends_on:
-      - mocks
+      - downstreams
     command: >
-      service --listen /run/tailbench/service.sock
-              --mocks /run/tailbench/mocks.sock
+      program --listen /run/tailbench/program.sock
+              --downstreams /run/tailbench/downstreams.sock
 
   loadgen:
     <<: *build
@@ -56,10 +56,10 @@ services:
       - ../scenarios:/scenarios:ro
       - ../results:/results
     depends_on:
-      - service
+      - program
     command: >
       loadgen run --config /scenarios/${SCENARIO:-fanout-bimodal.toml}
-                  --socket /run/tailbench/service.sock
+                  --socket /run/tailbench/program.sock
                   --out /results
                   --repeat ${REPEAT:-1}
 

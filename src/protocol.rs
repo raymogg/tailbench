@@ -1,15 +1,15 @@
-//! The loadgen <-> service protocol.
+//! The loadgen <-> program protocol.
 //!
-//! The service receives the work it must do and returns what it did. It never
+//! The program receives the work it must do and returns what it did. It never
 //! sees deadlines or scoring: classification is the harness\'s job, so a
-//! service cannot influence its own verdict.
+//! program cannot influence its own verdict.
 
 use serde::{Deserialize, Serialize};
 
 use crate::record::CallSpan;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServiceRequest {
+pub struct ProgramRequest {
     pub tag: u64,
     pub request_id: u64,
     /// Downstreams this request must call. Order is not significant.
@@ -19,7 +19,7 @@ pub struct ServiceRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServiceReply {
+pub struct ProgramReply {
     pub tag: u64,
     pub digest: Option<u64>,
     pub spans: Vec<CallSpan>,

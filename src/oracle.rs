@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::config::Config;
 use crate::record::{CallOutcome, CallSpan, Outcome};
 use crate::rng::{call_digest, fold_digest};
-use crate::protocol::ServiceReply;
+use crate::protocol::ProgramReply;
 use crate::timeline::ScheduledRequest;
 
 pub struct Oracle {
@@ -70,7 +70,7 @@ impl Oracle {
     pub fn classify(
         &self,
         req: &ScheduledRequest,
-        resp: &Result<ServiceReply, anyhow::Error>,
+        resp: &Result<ProgramReply, anyhow::Error>,
         completion_ns: u64,
         deadline_ns: u64,
     ) -> (Outcome, Option<bool>, bool) {

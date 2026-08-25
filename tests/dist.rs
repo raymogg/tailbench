@@ -1,6 +1,6 @@
 //! distribution and RNG tests.
 
-use tailbench::dist::Distribution;
+use tailbench::distributions::Distribution;
 use tailbench::rng::call_rng;
 
 fn sample_n(d: &Distribution, n: usize, seed: u64) -> Vec<f64> {
@@ -86,6 +86,48 @@ fn distinct_keys_give_distinct_draws() {
     assert_ne!(draw(1, 0, 0), draw(1, 1, 0), "downstream_id ignored");
     // attempt is in the key so P5's retries do not collide.
     assert_ne!(draw(1, 0, 0), draw(1, 0, 1), "attempt ignored");
+}
+
+/// Swapping two field values must not reproduce a stream.
+///
+/// The previous derivation combined the fields as `splitmix64(request_id) ^
+/// splitmix64(downstream_id << 32 | attempt)`, which is symmetric: with
+/// `downstream_id == 0` the attempt aliased into the request_id's space, so
+/// `(request 1, attempt 2)` and `(request 2, attempt 1)` drew the same latency,
+/// and any `request_id == attempt` collapsed to a single shared stream.
+/// `distinct_keys_give_distinct_draws` missed it by varying one field at a time.
+#[test]
+fn swapped_fields_do_not_collide() {
+    let d = Distribution::LogNormal {
+        median_ms: 8.0,
+        sigma: 0.6,
+    };
+    let draw = |rid: u64, ds: u16, att: u32| {
+        let mut r = call_rng(42, rid, ds, att);
+        d.sample_ms(&mut r)
+    };
+
+    // downstream_id 0 is the first-declared downstream -- the common case.
+    assert_ne!(draw(1, 0, 2), draw(2, 0, 1), "request_id/attempt swap collides");
+    assert_ne!(draw(3, 0, 1), draw(1, 0, 3), "request_id/attempt swap collides");
+    // The degenerate case: request_id == attempt used to cancel to a constant.
+    assert_ne!(draw(0, 0, 0), draw(1, 0, 1), "request_id == attempt collapses");
+    assert_ne!(draw(2, 0, 2), draw(3, 0, 3), "request_id == attempt collapses");
+    // request_id/downstream_id swap.
+    assert_ne!(draw(1, 2, 0), draw(2, 1, 0), "request_id/downstream swap collides");
+
+    // Exhaustive over a small grid: every distinct tuple, a distinct draw.
+    let mut seen = std::collections::HashMap::new();
+    for rid in 0..40u64 {
+        for ds in 0..4u16 {
+            for att in 0..4u32 {
+                let bits = draw(rid, ds, att).to_bits();
+                if let Some(prev) = seen.insert(bits, (rid, ds, att)) {
+                    panic!("{prev:?} and {:?} share a stream", (rid, ds, att));
+                }
+            }
+        }
+    }
 }
 
 #[test]

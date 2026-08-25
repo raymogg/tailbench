@@ -14,9 +14,9 @@ use tokio::sync::mpsc;
 use crate::clock::{ns_since, Clock};
 use crate::config::Config;
 use crate::oracle::Oracle;
-use crate::protocol::ServiceReply;
+use crate::protocol::ProgramReply;
 use crate::record::{Outcome, RequestRecord};
-use crate::service_client::ServiceClient;
+use crate::program_client::ProgramClient;
 use crate::timeline::{ScheduledRequest, Timeline};
 
 /// dispatch later than this counts as a coordinated-omission event.
@@ -42,7 +42,7 @@ pub struct RunOutcome {
 pub async fn run<C: Clock + Clone>(
     cfg: &Config,
     timeline: Timeline,
-    service: Arc<ServiceClient>,
+    service: Arc<ProgramClient>,
     clock: C,
 ) -> Result<RunOutcome> {
     let oracle = Arc::new(Oracle::new(cfg));
@@ -145,7 +145,7 @@ pub async fn run<C: Clock + Clone>(
 fn build_record(
     req: &ScheduledRequest,
     oracle: &Oracle,
-    resp: Result<ServiceReply>,
+    resp: Result<ProgramReply>,
     start: Instant,
     actual: Instant,
     done: Instant,

@@ -19,13 +19,38 @@ fn splitmix64(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// Pack a call site into one integer, each field in its own bit range.
+///
+/// Packing rather than combining the fields with XOR. `splitmix64(a) ^
+/// splitmix64(b)` is symmetric in `a` and `b`, so tuples that swap two field
+/// values produce an identical stream -- `(request 1, attempt 2)` collided with
+/// `(request 2, attempt 1)`. Disjoint bit ranges make every distinct tuple a
+/// distinct integer, so no two call sites can alias.
+///
+/// Widths: attempt 8 bits, downstream_id 16, request_id 40. 255 retries on one
+/// call is already pathological, and 40 bits of request_id is ~58,000 years at
+/// 600 rps.
+const ATTEMPT_BITS: u32 = 8;
+const DOWNSTREAM_BITS: u32 = 16;
+
+fn call_key(request_id: u64, downstream_id: u16, attempt: u32) -> u64 {
+    debug_assert!(
+        attempt < (1 << ATTEMPT_BITS),
+        "attempt {attempt} exceeds {ATTEMPT_BITS} bits; draws would alias"
+    );
+    debug_assert!(
+        request_id < (1 << (64 - ATTEMPT_BITS - DOWNSTREAM_BITS)),
+        "request_id {request_id} exceeds 40 bits; draws would alias"
+    );
+    (request_id << (ATTEMPT_BITS + DOWNSTREAM_BITS))
+        | ((downstream_id as u64) << ATTEMPT_BITS)
+        | (attempt as u64 & ((1 << ATTEMPT_BITS) - 1))
+}
+
 /// RNG for one downstream call. Order-independent by construction.
 pub fn call_rng(seed: u64, request_id: u64, downstream_id: u16, attempt: u32) -> ChaCha8Rng {
-    let mixed = splitmix64(
-        seed ^ splitmix64(request_id)
-            ^ splitmix64((downstream_id as u64) << 32 | attempt as u64),
-    );
-    ChaCha8Rng::seed_from_u64(mixed)
+    let key = call_key(request_id, downstream_id, attempt);
+    ChaCha8Rng::seed_from_u64(splitmix64(seed ^ splitmix64(key)))
 }
 
 /// RNG for the arrival timeline. Independent of every call stream, and
@@ -43,11 +68,13 @@ pub fn class_rng(seed: u64) -> ChaCha8Rng {
 /// The value a downstream returns, folded into the response digest.
 /// Derived the same way as the latency draw so the oracle can compute the
 /// expected digest offline without the service's cooperation.
+/// Packed the same way as the latency draw, with a domain constant keeping it a
+/// separate stream -- otherwise the digest would be derivable from the latency.
+/// No attempt field: the value a downstream returns is the same on every
+/// attempt, which is what makes a retry a retry.
 pub fn call_digest(seed: u64, request_id: u64, downstream_id: u16) -> u64 {
-    splitmix64(
-        seed ^ splitmix64(request_id ^ 0xD16E_5700_D16E_5700)
-            ^ splitmix64((downstream_id as u64) << 16),
-    )
+    let key = call_key(request_id, downstream_id, 0);
+    splitmix64(seed ^ 0xD16E_5700_D16E_5700 ^ splitmix64(key))
 }
 
 /// Fold per-call digests into a response digest. Order-independent: call order

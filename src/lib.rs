@@ -1,9 +1,13 @@
 //! tailbench -- an experimental environment for p99 optimization of async
-//! services. See docs/phase1-step1-2-spec.md.
+//! services.
+//!
+//! Three processes: `loadgen` measures, `program` is the code under test, and
+//! `downstreams` simulates its dependencies. Everything in this library is
+//! harness apparatus; only `src/bin/program.rs` is open to optimization.
 
 pub mod clock;
 pub mod config;
-pub mod dist;
+pub mod distributions;
 pub mod record;
 pub mod rng;
 pub mod timeline;
@@ -14,4 +18,4 @@ pub mod report;
 pub mod protocol;
 pub mod ready;
 pub mod wire;
-pub mod service_client;
+pub mod program_client;

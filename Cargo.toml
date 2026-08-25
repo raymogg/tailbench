@@ -21,5 +21,10 @@ name = "loadgen"
 path = "src/bin/loadgen.rs"
 
 [[bin]]
-name = "mocks"
-path = "src/bin/mocks.rs"
+name = "downstreams"
+path = "src/bin/downstreams.rs"
+
+# The code under test. The only file an agent may edit.
+[[bin]]
+name = "program"
+path = "src/bin/program.rs"
