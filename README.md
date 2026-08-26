@@ -14,21 +14,15 @@ scripts/run.sh scenarios/smoke.toml          # 5 requests, checks the wiring
 scripts/run.sh scenarios/fanout-bimodal.toml
 ```
 
-The scenario argument is required. Nothing in the run path defaults to a
-scenario — a run that silently used the wrong config still produces a
-plausible report, and you would only find out afterwards.
-
-The script starts all three processes, runs one scenario, and shuts down.
+The script starts all three processes (downstreams.rs, loadgen.rs and program.rs), runs one scenario, and shuts down.
 
 Each run creates its own directory, `results/<UTC timestamp>-<scenario id>/`,
 holding `requests.jsonl` (one record per request), `report.json`, and `run.json`
-(config, seed, git SHA, environment). Nothing is overwritten, and the timestamp
-prefix sorts chronologically, so runs can be compared over time. `--repeat N`
-writes its replays into a single directory as `requests.0.jsonl`, `.1`, ... —
-they are one experiment measuring replay noise, not N separate runs.
+(config, seed, git SHA, environment). `--repeat N`
+writes its replays into a single directory as `requests.0.jsonl`, `.1`, ...
 
 To run the processes by hand — useful for `--verbose` on the program, which
-logs each request as it routes:
+logs each request as it routes, you must start three seperate binaries:
 
 ```bash
 cargo run --release --bin downstreams -- \
@@ -52,7 +46,7 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
 ## Architecture
 
 ```
- loadgen (2 cores)     program (4 cores)    downstreams (4 cores)
+ loadgen               program               downstreams
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
 │ timeline        │   │ fan out to      │   │ capacity+queue  │
 │ dispatch loop   │─▶─│ required        │─▶─│ seeded latency  │
@@ -87,10 +81,9 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
 `src/bin/program.rs` is the code under test, and the only file open to
 optimization. It receives a request, calls the downstreams that request
 requires, folds their replies into a digest, and returns it before the deadline.
-The shipped version is the correct, fault-free baseline: every required call
-made concurrently, no artificial limit.
+This repo includes a baseline sample implementation of program.rs
 
-Everything else is measurement apparatus:
+==
 
 | Process | Files | Role |
 |---|---|---|
@@ -121,9 +114,6 @@ Open, and the point of the exercise:
   allowed. Each `attempt` draws a fresh latency.
 - **Timeouts**, and what to do when one fires.
 
-Swapping the concurrent `join_all` for sequential awaits is fault primitive P4 —
-correct, much worse at the tail, and the kind of thing this measures.
-
 ### Verifying a change
 
 ```bash
@@ -150,20 +140,6 @@ Two notebooks:
 - **`compare_runs.ipynb`** — baseline vs candidate, which is where a change to
   `program.rs` is judged. Also sweeps a series of runs and checks a delta against
   replay noise.
-
-The loading and plotting code lives in `notebooks/tailbench_viz.py`; the
-notebooks are the narrative around it. It re-derives percentiles with the
-same nearest-rank convention as `src/report.rs` and reads the headline metrics
-straight out of `report.json`, so nothing in it can disagree with the run that
-produced it.
-
-`compare_runs.ipynb` is built to tell apart three things that all look like
-"the number went down":
-
-- a real architectural win — tail falls, `ok%` holds, queue wait drops;
-- a win bought by failing requests — tail falls, `ok%` falls with it;
-- noise — a change inside replay variance. Use `--repeat N` and compare the
-  delta against the reported std. dev.
 
 ## Scenario Config
 
@@ -256,7 +232,3 @@ Under Docker with cpusets applied:
 ```bash
 cd docker && SCENARIO=fanout-bimodal.toml REPEAT=1 docker compose up
 ```
-
-`SCENARIO` and `REPEAT` are required; compose refuses to start without them.
-Both containers read the same `SCENARIO`, so loadgen and downstreams cannot
-end up on different configs.
