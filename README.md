@@ -134,6 +134,37 @@ scripts/run.sh scenarios/fanout-bimodal.toml
 improvement was real or bought by failing requests. A run that reports
 `RUN FAILED` or any nonzero `incorrect` did not earn its latency.
 
+## Analysing a run
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install pandas numpy matplotlib jupyterlab ipykernel
+.venv/bin/jupyter lab notebooks/analyse_run.ipynb
+```
+
+Two notebooks:
+
+- **`analyse_run.ipynb`** — one run directory: outcome mix, latency distribution
+  and tail, behaviour over time, and the per-class and per-downstream breakdowns
+  that say *where* a tail comes from.
+- **`compare_runs.ipynb`** — baseline vs candidate, which is where a change to
+  `program.rs` is judged. Also sweeps a series of runs and checks a delta against
+  replay noise.
+
+The loading and plotting code lives in `notebooks/tailbench_viz.py`; the
+notebooks are the narrative around it. It re-derives percentiles with the
+same nearest-rank convention as `src/report.rs` and reads the headline metrics
+straight out of `report.json`, so nothing in it can disagree with the run that
+produced it.
+
+`compare_runs.ipynb` is built to tell apart three things that all look like
+"the number went down":
+
+- a real architectural win — tail falls, `ok%` holds, queue wait drops;
+- a win bought by failing requests — tail falls, `ok%` falls with it;
+- noise — a change inside replay variance. Use `--repeat N` and compare the
+  delta against the reported std. dev.
+
 ## Scenario Config
 
 ```toml
