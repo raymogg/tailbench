@@ -2,12 +2,6 @@
 //!
 //! `depends_on` in compose waits for container start, not readiness. Without a
 //! handshake the first requests hit an absent peer and poison the warmup.
-//!
-//! Sleeps directly rather than through the harness's `Clock`. The trait exists
-//! so the determinism spike can swap the impl for the *measured* path; this poll
-//! is setup, runs before the first request, and lands in no measurement.
-//! Exporting `Clock` to the program to save one call would have been the larger
-//! cost. `scripts/check-clock.sh` exempts this crate for the same reason.
 
 use anyhow::{bail, Result};
 use std::path::Path;

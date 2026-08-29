@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
 
-use tailbench::clock::RealClock;
 use tailbench::config::Config;
 use tailbench::downstream::{CallRequest, DownstreamCluster, TaggedReply};
 use tailbench::ready;
@@ -28,7 +27,7 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     let cfg = Config::load(&args.config)?;
-    let cluster = Arc::new(DownstreamCluster::new(&cfg, RealClock));
+    let cluster = Arc::new(DownstreamCluster::new(&cfg));
 
     let listener = ready::bind(&args.socket)?;
 
@@ -58,7 +57,7 @@ async fn main() -> Result<()> {
 /// Handling inline would serialize every call on a connection, manufacturing a
 /// bottleneck that is not in the scenario -- the same class of error as
 /// closed-loop load generation.
-async fn serve(stream: UnixStream, cluster: Arc<DownstreamCluster<RealClock>>) -> Result<()> {
+async fn serve(stream: UnixStream, cluster: Arc<DownstreamCluster>) -> Result<()> {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<TaggedReply>(4096);
 

@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailbench::clock::{Clock, RealClock};
 use tailbench::config::Config;
 use tailbench::load_generator;
 use tailbench::protocol::{ProgramReply, ProgramRequest};
@@ -104,7 +103,6 @@ async fn spawn_stub(mode: Mode, dispatched: Arc<AtomicUsize>) -> (std::path::Pat
 }
 
 async fn reply_for(mode: Mode, req: ProgramRequest) -> ProgramReply {
-    let clock = RealClock;
     let span = CallSpan {
         downstream_id: "svc_a".into(),
         attempt: 0,
@@ -120,11 +118,11 @@ async fn reply_for(mode: Mode, req: ProgramRequest) -> ProgramReply {
         Mode::SkipWork => (Some(good), Vec::new()),
         Mode::BadDigest => (Some(good ^ 0xDEAD), vec![span]),
         Mode::Late => {
-            clock.sleep_until(clock.now() + Duration::from_millis(80)).await;
+            tokio::time::sleep(Duration::from_millis(80)).await;
             (Some(good), vec![span])
         }
         Mode::Slow(d) => {
-            clock.sleep_until(clock.now() + d).await;
+            tokio::time::sleep(d).await;
             (Some(good), vec![span])
         }
     };
@@ -139,7 +137,7 @@ async fn reply_for(mode: Mode, req: ProgramRequest) -> ProgramReply {
 async fn run_mode(mode: Mode) -> Vec<Outcome> {
     let cfg = Config::from_toml_str(CFG).unwrap();
     let (_sock, client) = spawn_stub(mode, Arc::new(AtomicUsize::new(0))).await;
-    let out = load_generator::run(&cfg, Timeline::generate(&cfg), client, RealClock)
+    let out = load_generator::run(&cfg, Timeline::generate(&cfg), client)
         .await
         .unwrap();
     out.records.iter().map(|r| r.outcome).collect()
@@ -160,7 +158,7 @@ async fn generator_is_open_loop() {
     let (_sock, client) =
         spawn_stub(Mode::Slow(Duration::from_millis(500)), dispatched.clone()).await;
 
-    let out = load_generator::run(&cfg, timeline, client, RealClock)
+    let out = load_generator::run(&cfg, timeline, client)
         .await
         .unwrap();
 
@@ -179,7 +177,7 @@ async fn latency_measured_from_intended_dispatch() {
         Arc::new(AtomicUsize::new(0)),
     )
     .await;
-    let out = load_generator::run(&cfg, Timeline::generate(&cfg), client, RealClock)
+    let out = load_generator::run(&cfg, Timeline::generate(&cfg), client)
         .await
         .unwrap();
 
@@ -243,7 +241,7 @@ async fn expiring_is_worse_than_being_slow() {
     async fn score(mode: Mode, penalty: f64) -> f64 {
         let cfg = Config::from_toml_str(CFG).unwrap();
         let (_sock, client) = spawn_stub(mode, Arc::new(AtomicUsize::new(0))).await;
-        let out = load_generator::run(&cfg, Timeline::generate(&cfg), client, RealClock)
+        let out = load_generator::run(&cfg, Timeline::generate(&cfg), client)
             .await
             .unwrap();
         report::build(ReportInput {

@@ -1,28 +1,11 @@
-//! Time access, behind a trait so the determinism spike can swap the impl.
+//! Time helpers.
 //!
-//! Nothing outside this module may call `Instant::now` or `tokio::time::sleep`
-//! directly; `scripts/check-clock.sh` enforces it.
+//! Previously a `Clock` trait with a single implementation, kept so a
+//! determinism spike could swap in a virtual clock. That spike is not planned,
+//! and one trait with one impl bought nothing but generic parameters threaded
+//! through every caller -- so the trait is gone and time access is direct.
 
-use std::future::Future;
 use std::time::{Duration, Instant};
-
-pub trait Clock: Send + Sync + 'static {
-    fn now(&self) -> Instant;
-    fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> + Send;
-}
-
-#[derive(Clone, Copy, Default, Debug)]
-pub struct RealClock;
-
-impl Clock for RealClock {
-    fn now(&self) -> Instant {
-        Instant::now()
-    }
-
-    fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> + Send {
-        tokio::time::sleep_until(tokio::time::Instant::from_std(deadline))
-    }
-}
 
 /// Nanoseconds elapsed from `origin`, saturating at zero.
 ///

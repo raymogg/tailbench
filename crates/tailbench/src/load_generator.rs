@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-use crate::clock::{ns_since, Clock};
+use crate::clock::ns_since;
 use crate::config::Config;
 use crate::oracle::Oracle;
 use crate::protocol::ProgramReply;
@@ -39,11 +39,10 @@ pub struct RunOutcome {
     pub coordinated_omission_failure: bool,
 }
 
-pub async fn run<C: Clock + Clone>(
+pub async fn run(
     cfg: &Config,
     timeline: Timeline,
     program: Arc<LoadgenClient>,
-    clock: C,
 ) -> Result<RunOutcome> {
     let oracle = Arc::new(Oracle::new(cfg));
     let budget = Duration::from_secs_f64(cfg.slo.budget_ms / 1000.0);
@@ -58,14 +57,14 @@ pub async fn run<C: Clock + Clone>(
         out
     });
 
-    let start = clock.now();
+    let start = Instant::now();
     let mut late_dispatches = 0usize;
     let mut late_post_warmup = 0usize;
     let mut post_warmup = 0usize;
 
     for req in timeline.requests.iter() {
         let deadline = start + req.offset;
-        let now = clock.now();
+        let now = Instant::now();
 
         let lateness = now.saturating_duration_since(deadline);
         let is_post_warmup = req.offset >= warmup;
@@ -80,14 +79,13 @@ pub async fn run<C: Clock + Clone>(
         }
 
         if now < deadline {
-            clock.sleep_until(deadline).await;
+            tokio::time::sleep_until(deadline.into()).await;
         }
 
-        let actual = clock.now();
+        let actual = Instant::now();
         let req = req.clone();
         let program = program.clone();
         let oracle = oracle.clone();
-        let clock2 = clock.clone();
         let tx = tx.clone();
 
         // Spawn, never await inline. Awaiting the handler here would be a
@@ -96,7 +94,7 @@ pub async fn run<C: Clock + Clone>(
         // `generator_is_open_loop`, so it cannot regress silently.
         tokio::spawn(async move {
             let resp = program.call(&req).await;
-            let done = clock2.now();
+            let done = Instant::now();
             let rec = build_record(
                 &req, &oracle, resp, start, actual, done, budget, lateness,
             );
@@ -110,9 +108,9 @@ pub async fn run<C: Clock + Clone>(
     // plus a grace margin; anything still outstanding is NeverServed.
     let grace = budget + Duration::from_secs(1);
     let deadline_all = start + timeline.duration + grace;
-    let now = clock.now();
+    let now = Instant::now();
     if now < deadline_all {
-        clock.sleep_until(deadline_all).await;
+        tokio::time::sleep_until(deadline_all.into()).await;
     }
 
     let mut records = collector.await?;

@@ -8,9 +8,10 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Semaphore;
 
-use crate::clock::{ms_to_duration, Clock};
+use crate::clock::ms_to_duration;
 use crate::config::{Config, DownstreamCfg};
 use crate::record::CallOutcome;
 use crate::rng::{call_digest, call_rng};
@@ -33,14 +34,13 @@ struct Slot {
 ///
 /// Deterministic given `(seed, request_id, downstream_id)` and independent of
 /// wall clock and arrival order.
-pub struct DownstreamCluster<C: Clock> {
+pub struct DownstreamCluster {
     slots: Vec<Slot>,
     seed: u64,
-    clock: C,
 }
 
-impl<C: Clock> DownstreamCluster<C> {
-    pub fn new(cfg: &Config, clock: C) -> Self {
+impl DownstreamCluster {
+    pub fn new(cfg: &Config) -> Self {
         let slots = cfg
             .downstreams
             .iter()
@@ -54,7 +54,6 @@ impl<C: Clock> DownstreamCluster<C> {
         DownstreamCluster {
             slots,
             seed: cfg.scenario.seed,
-            clock,
         }
     }
 
@@ -68,12 +67,12 @@ impl<C: Clock> DownstreamCluster<C> {
             None => anyhow::bail!("unknown downstream {name:?}"),
         };
         let timeout = ms_to_duration(slot.cfg.timeout_ms);
-        let start = self.clock.now();
+        let start = Instant::now();
 
         // 1. Capacity permit. Waiting here is queueing delay and counts toward
         //    the call's latency -- it is how a downstream saturates.
         let permit = slot.permits.clone().acquire_owned().await?;
-        let queued = self.clock.now();
+        let queued = Instant::now();
         let queue_wait = queued.saturating_duration_since(start);
 
         // The timeout applies to queue + service, not service alone: a request
@@ -100,7 +99,7 @@ impl<C: Clock> DownstreamCluster<C> {
             (service, CallOutcome::Ok)
         };
 
-        self.clock.sleep_until(queued + served).await;
+        tokio::time::sleep_until((queued + served).into()).await;
         drop(permit);
 
         let digest = match outcome {
@@ -124,15 +123,14 @@ impl<C: Clock> DownstreamCluster<C> {
 // UDS over TCP for a tighter tail: no TCP stack, no Nagle, no port exhaustion.
 
 /// Round-trip latency of the transport itself, for the baseline.
-pub async fn transport_probe<C: Clock>(
+pub async fn transport_probe(
     d: &UdsClient,
-    clock: &C,
     name: &str,
     n: usize,
 ) -> Result<Vec<u64>> {
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
-        let t0 = clock.now();
+        let t0 = Instant::now();
         let _ = d
             .call(
                 name,
@@ -142,7 +140,7 @@ pub async fn transport_probe<C: Clock>(
                 },
             )
             .await?;
-        out.push(clock.now().saturating_duration_since(t0).as_nanos() as u64);
+        out.push(Instant::now().saturating_duration_since(t0).as_nanos() as u64);
     }
     Ok(out)
 }

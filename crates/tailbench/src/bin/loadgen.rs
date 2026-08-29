@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use tailbench::clock::RealClock;
 use tailbench::config::Config;
 use tailbench::ready;
 use tailbench::load_generator::{self, RunOutcome};
@@ -152,7 +151,7 @@ async fn execute(cfg: &Config, socket: &Path) -> Result<RunOutcome> {
     let program = LoadgenClient::connect(socket)
         .await
         .with_context(|| format!("connecting to program at {}", socket.display()))?;
-    load_generator::run(cfg, Timeline::generate(cfg), program, RealClock).await
+    load_generator::run(cfg, Timeline::generate(cfg), program).await
 }
 
 /// Compare measured quantiles against the closed form.

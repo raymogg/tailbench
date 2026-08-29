@@ -8,7 +8,6 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::net::UnixListener;
 
-use crate::clock::{Clock, RealClock};
 
 /// Bind a listener and publish a `.ready` marker beside it.
 pub fn bind(socket: &Path) -> Result<UnixListener> {
@@ -26,14 +25,11 @@ pub fn bind(socket: &Path) -> Result<UnixListener> {
 /// Block until a peer has published its `.ready` marker.
 pub async fn wait_for(socket: &Path) -> Result<()> {
     let marker = socket.with_extension("ready");
-    let clock = RealClock;
     for _ in 0..300 {
         if marker.exists() {
             return Ok(());
         }
-        clock
-            .sleep_until(clock.now() + Duration::from_millis(100))
-            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     bail!("timed out waiting for {}", marker.display())
 }
