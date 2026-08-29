@@ -1,19 +1,25 @@
 # tailbench
 
-An experimental environment for measuring and optimizing p99 latency of async
-services under open-loop load.
+Tailbench is an benchmark environment for measuring p99 latency of a target program.
 
-**`crates/program/src/main.rs` is the only file an agent may edit.** Everything
-else is measurement apparatus, and the crate boundary enforces it: `program`
-depends on `tailbench-abi`, not on the harness, so reaching the scorer is a
-compile error. See [What gets optimized](#what-gets-optimized).
+Compared to many other benchmarking environments that measure mean/median latency of single functions, tailbench aims to simulate async environments under load with varios simualted downstreams. In this way it can be thought of as a simple version of real distributed computing environments where you have a hotpath and various downstreams that you must interact with.
+
+It provides a way for researchers to define
+- load generation: produce requests at specific cadences
+- downstream services: simulated services that respond with latencies drawn from various distributions (`constant`, `uniform`, `lognormal`, `bimodal`,  `pareto`)
+
+**`crates/program/src/main.rs` is the only file an agent / research system may edit.**
+
+See the [program rules](#program-rules) for how each program must behave within the environment.
+
+See [scenario config](#scenario-config) for creating your own levels for testing. 5 pre-defined levels are provided as part of the repo.
 
 ## Quick start
 
 ```bash
 cargo test
-scripts/run.sh scenarios/smoke.toml          # 5 requests, checks the wiring
-scripts/run.sh scenarios/fanout-bimodal.toml
+scripts/run.sh scenarios/smoke.toml
+scripts/run.sh scenarios/level3.toml
 ```
 
 The script starts all three processes (downstreams.rs, loadgen.rs and program.rs), runs one scenario, and shuts down.
@@ -28,13 +34,13 @@ logs each request as it routes, you must start three seperate binaries:
 
 ```bash
 cargo run --release --bin downstreams -- \
-  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/downstreams.sock &
+  --config scenarios/level3.toml --socket /tmp/tb/downstreams.sock &
 
 cargo run --release --bin program -- \
   --listen /tmp/tb/program.sock --downstreams /tmp/tb/downstreams.sock --verbose &
 
 cargo run --release --bin loadgen -- run \
-  --config scenarios/fanout-bimodal.toml --socket /tmp/tb/program.sock
+  --config scenarios/level3.toml --socket /tmp/tb/program.sock
 ```
 
 Other subcommands:
@@ -78,24 +84,12 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
   `penalty_ms` below 1% failures and equal to it above; CVaR responds
   throughout. Outcome rates always accompany both.
 
-## What gets optimized
+## Program Rules
 
 `crates/program/src/main.rs` is the code under test, and the only file open to
 optimization. It receives a request, calls the downstreams that request
 requires, folds their replies into a digest, and returns it before the deadline.
 This repo includes a baseline sample implementation of program.rs
-
-==
-
-| Process | Files | Role |
-|---|---|---|
-| `program` | `crates/program/src/main.rs` | **The code under test. Edit this.** |
-| `loadgen` | `crates/tailbench/src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `loadgen_client.rs` | Schedules arrivals, scores outcomes |
-| `downstreams` | `crates/tailbench/src/bin/downstreams.rs`, `downstream.rs` | Simulates dependencies with seeded latency |
-| shared | `crates/tailbench-abi/` — `protocol.rs`, `wire.rs`, `call.rs`, `span.rs`, `digest.rs`, `ready.rs` | The program/harness contract (~150 lines) |
-| harness-only | `config.rs`, `rng.rs`, `clock.rs`, `distributions.rs`, `record.rs` | Seeded draws and scoring. Not reachable from `program`. |
-
-### The rules
 
 Fixed, and not optimizable away:
 
@@ -117,28 +111,7 @@ Open, and the point of the exercise:
   allowed. Each `attempt` draws a fresh latency.
 - **Timeouts**, and what to do when one fires.
 
-### The isolation boundary
-
-`crates/program` depends on `tailbench-abi` and **not** on `tailbench`. That is
-what makes the rules above enforceable rather than advisory:
-
-```rust
-use tailbench::oracle::Oracle;              // unresolved module or unlinked crate
-use tailbench_abi::digest::call_digest;     // no `call_digest` in `digest`
-```
-
-The ABI carries the wire protocol, the framing, the downstream client, the
-readiness handshake, and `fold_digest` — roughly 150 lines. It deliberately
-excludes `call_digest`, `call_rng`, and `payload_nonce`: a program holding those
-could compute every expected digest from the seed and skip the work entirely.
-
-Two things the boundary cannot do, covered separately: a program could
-reimplement the digest algorithm from scratch, or read the seed out of
-`scenarios/*.toml`. `crates/tailbench/tests/isolation.rs` greps for the former;
-`scripts/run.sh` launches the program from a scratch cwd for the latter, which
-is what `docker/compose.yml` already achieves by not mounting `/scenarios`.
-
-### Tracking variants
+## Tracking variants
 
 Each run records `program_sha256` — the hash of the program source that actually
 ran. `git_sha` alone cannot tell two variants apart, because an agent iterating
@@ -150,7 +123,7 @@ One branch per variant, each differing from `master` in one file:
 ```bash
 git switch -c variant/my-change
 # edit crates/program/src/main.rs
-scripts/run.sh scenarios/fanout-bimodal.toml
+scripts/run.sh scenarios/level3.toml
 ```
 
 Then compare in `notebooks/compare_runs.ipynb`.
@@ -158,7 +131,7 @@ Then compare in `notebooks/compare_runs.ipynb`.
 ### Verifying a change
 
 ```bash
-scripts/run.sh scenarios/fanout-bimodal.toml
+scripts/run.sh scenarios/level3.toml
 ```
 
 `cvar_99` is the number to move; the outcome rates beneath it say whether the
@@ -182,11 +155,41 @@ Two notebooks:
   `program.rs` is judged. Also sweeps a series of runs and checks a delta against
   replay noise.
 
+## Pre-defined levels
+
+Five scenarios of increasing difficulty, `scenarios/level1.toml` ... `level5.toml`.
+Each is a different *architectural* problem rather than the same problem with the
+dial turned up -- the point is to find out which kinds of reasoning an optimizer
+can and cannot do.
+
+| Level | The problem | What a naive program does | What the fix requires |
+|---|---|---|---|
+| 1 | One well-behaved dependency, 10x budget headroom | Passes, 100% ok | Nothing. Confirms the program isn't self-serialising |
+| 2 | Fan-out of 3; budget sits between `max(mean)` and `sum(mean)` | Serial fan-out misses the SLO | Issue the calls concurrently |
+| 3 | Bimodal straggler: 6% of calls take 150ms against a 60ms budget | ~3% expire, `cvar_99` pins to `penalty_ms` | Hedge. A retry draws fresh latency, so `p` becomes `p²` |
+| 4 | Two tail shapes at once: bimodal *and* pareto | ~4.6% expire | Treat them differently -- retry the discrete one, time out the unbounded one |
+| 5 | Same tails, but `svc_b` has capacity 6 against ~3.0 offered | ~5.5% expire | Be selective. A blanket hedge saturates `svc_b` and makes it *worse* |
+
+The ladder is built on two properties of the harness:
+
+- **Retries draw fresh latency.** `attempt` is part of the RNG key, so a second
+  call to a straggler is an independent sample -- which is what makes hedging a
+  real strategy rather than a repeat of the same bad draw.
+- **Queue wait counts toward `timeout_ms`.** Capacity is a semaphore, so extra
+  calls consume permits that first attempts need. This is the tension levels 4
+  and 5 are built on, and why level 5 cannot be solved by hedging harder.
+
+Levels 1-3 each have a single dominant right answer. Levels 4 and 5 do not: they
+have a trade-off to locate, and level 5 punishes the policy that wins level 3.
+That contrast is the actual experiment -- a system that has learned "hedge the
+tail" as a rule will regress on level 5, while one reasoning about capacity
+will not.
+
 ## Scenario Config
 
 ```toml
 [scenario]
-id         = "fanout-bimodal-001"  # label, appears in run.json
+id         = "level3-straggler"     # label, appears in run.json
 seed       = 42                    # seeds arrivals, class mix, latency draws
 duration_s = 20.0                  # length of the arrival timeline
 warmup_s   = 2.0                   # leading window discarded before scoring
@@ -223,7 +226,7 @@ capacity     = 16
 timeout_ms   = 250.0
 ```
 
-### The parameters worth understanding
+### Key Parameters
 
 **`budget_ms`** is a per-request deadline. A response arriving after
 `intended_dispatch + budget_ms` results in `Expired`, exactly
@@ -254,14 +257,6 @@ boundary does not move with service behaviour.
 | `pareto` | `scale_ms`, `alpha` | Heavy-tailed; `alpha > 1` required |
 | `empirical` | `samples_ms` | Resampled from a trace |
 
-`bimodal` is where mean and p99 diverge hardest. With `fast_ms = 3`,
-`slow_ms = 180`, `p_slow = 0.02`, the mean is ~6.5ms and p99 is exactly 180ms —
-a 28× gap. A service tuned on mean latency will barely notice it.
-
-Invalid configs are rejected at load with the offending value named — unknown
-fields, weights that do not sum to 1, `requires` naming an undeclared
-downstream, out-of-domain distribution parameters.
-
 ## Measurement environment
 
 Authoritative runs need a host that supports real CPU pinning: Linux with
@@ -271,5 +266,5 @@ over the 1ms threshold against a gate of 0.1%. That is the gate working.
 Under Docker with cpusets applied:
 
 ```bash
-cd docker && SCENARIO=fanout-bimodal.toml REPEAT=1 docker compose up
+cd docker && SCENARIO=level3.toml REPEAT=1 docker compose up
 ```

@@ -1,0 +1,53 @@
+# Level 2 -- fan-out of three. Concurrency is the whole lesson.
+#
+# The budget (60ms) sits deliberately between two numbers:
+#   sum of the three means  = 44ms  (+ tail => a serial fan-out misses often)
+#   max  of the three means = 17ms  (a concurrent fan-out has ~3.5x headroom)
+#
+# So calling svc_a, svc_b and svc_c one after another is not merely slower, it
+# fails the SLO; issuing them together passes comfortably. Utilisation stays
+# under 5% everywhere, so nothing here is a capacity problem -- the only
+# variable is whether the program waits on one call before starting the next.
+#
+# Reference: serial-style naive cvar_99 ~91ms (0.08% expired); concurrent with
+# a small hedge reaches ~31ms. Headroom ~66%.
+[scenario]
+id         = "level2-fanout"
+seed       = 1002
+duration_s = 60.0
+warmup_s   = 5.0
+
+[load]
+arrival  = "poisson"
+rate_rps = 200.0
+
+[slo]
+budget_ms = 60.0
+
+[[request_class]]
+name     = "cheap"
+weight   = 0.5
+requires = ["svc_a"]
+
+[[request_class]]
+name     = "full"
+weight   = 0.5
+requires = ["svc_a", "svc_b", "svc_c"]
+
+[[downstream]]
+id           = "svc_a"
+distribution = { kind = "lognormal", median_ms = 12.0, sigma = 0.45 }
+capacity     = 64
+timeout_ms   = 150.0
+
+[[downstream]]
+id           = "svc_b"
+distribution = { kind = "lognormal", median_ms = 15.0, sigma = 0.45 }
+capacity     = 48
+timeout_ms   = 150.0
+
+[[downstream]]
+id           = "svc_c"
+distribution = { kind = "lognormal", median_ms = 13.0, sigma = 0.45 }
+capacity     = 48
+timeout_ms   = 150.0

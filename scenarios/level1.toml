@@ -1,0 +1,36 @@
+# Level 1 -- one well-behaved dependency, generous budget.
+#
+# The floor of the ladder: a single lognormal dependency at 2.5% utilisation and
+# a budget 10x its mean. Any implementation that calls the downstream once and
+# returns the answer passes with 100% ok. There is no straggler to hedge and no
+# fan-out to parallelise.
+#
+# What it tests: that the program is correct and not accidentally serialising
+# itself. A regression here (a global mutex, a blocking call on the reactor)
+# shows up as queueing that the scenario itself does not create.
+#
+# Reference: naive cvar_99 ~29ms. Hedging can reach ~20ms, so there is real but
+# modest headroom -- tail-trimming works even when nothing is broken.
+[scenario]
+id         = "level1-warmup"
+seed       = 1001
+duration_s = 60.0
+warmup_s   = 5.0
+
+[load]
+arrival  = "poisson"
+rate_rps = 150.0
+
+[slo]
+budget_ms = 120.0
+
+[[request_class]]
+name     = "simple"
+weight   = 1.0
+requires = ["svc_a"]
+
+[[downstream]]
+id           = "svc_a"
+distribution = { kind = "lognormal", median_ms = 10.0, sigma = 0.4 }
+capacity     = 64
+timeout_ms   = 200.0

@@ -1,0 +1,52 @@
+# Level 3 -- the bimodal straggler. Hedging is the lever.
+#
+# svc_b returns in 4ms 94% of the time and 150ms the other 6%. The slow mode is
+# 2.5x the budget, so every request that draws it is lost -- and half the
+# requests touch svc_b, which is why the naive program expires ~3% and its
+# cvar_99 pins to penalty_ms.
+#
+# No amount of concurrency fixes this: the request is waiting on one call that
+# will not come back in time. The fix is a second attempt. Because `attempt` is
+# part of the RNG key, a retry draws a *fresh* latency -- so a hedge fired a few
+# ms in converts a 6% loss into a 0.36% loss (p^2), which is safely under the 1%
+# that cvar_99 averages over.
+#
+# Capacity is deliberately generous (2.5% utilisation), so the hedge is nearly
+# free here. Level 5 removes that comfort.
+#
+# Reference: naive cvar_99 600ms (96.95% ok) -> hedged ~125ms (99.82% ok).
+# Headroom ~79%.
+[scenario]
+id         = "level3-straggler"
+seed       = 1003
+duration_s = 60.0
+warmup_s   = 5.0
+
+[load]
+arrival  = "poisson"
+rate_rps = 250.0
+
+[slo]
+budget_ms = 60.0
+
+[[request_class]]
+name     = "cheap"
+weight   = 0.5
+requires = ["svc_a"]
+
+[[request_class]]
+name     = "full"
+weight   = 0.5
+requires = ["svc_a", "svc_b"]
+
+[[downstream]]
+id           = "svc_a"
+distribution = { kind = "lognormal", median_ms = 8.0, sigma = 0.5 }
+capacity     = 96
+timeout_ms   = 100.0
+
+[[downstream]]
+id           = "svc_b"
+distribution = { kind = "bimodal", fast_ms = 4.0, slow_ms = 150.0, p_slow = 0.06 }
+capacity     = 64
+timeout_ms   = 100.0
