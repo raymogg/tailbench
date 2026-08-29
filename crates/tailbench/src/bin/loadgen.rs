@@ -233,6 +233,9 @@ fn write_manifest(
         scenario_path: scenario_path.display().to_string(),
         seed: cfg.scenario.seed,
         git_sha: git_sha(),
+        program_sha256: program_sha256(),
+        git_dirty: git_dirty(),
+        program_variant: program_variant(),
         environment: environment(),
         cpuset: std::env::var("TAILBENCH_CPUSET").ok(),
         worker_threads: std::env::var("TOKIO_WORKER_THREADS")
@@ -268,6 +271,63 @@ fn git_sha() -> Option<String> {
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// The program's source, relative to the repo root. `run.sh` cds there before
+/// launching, so a relative path is what both entry points see. Named once
+/// because the path moves if the program becomes its own crate.
+const PROGRAM_SRC: &str = "crates/program/src/main.rs";
+
+/// SHA-256 of the program source, or `unknown`.
+///
+/// Shelled out rather than hand-rolled: the crate has no hash dependency and
+/// this file already treats `git` and `uname` the same way. Never fails the
+/// run -- a missing hash degrades provenance, it does not invalidate the
+/// measurement.
+fn program_sha256() -> String {
+    // `shasum -a 256` on macOS, `sha256sum` on Linux; both print
+    // `<hex>  <path>`.
+    for (bin, args) in [
+        ("shasum", &["-a", "256", PROGRAM_SRC][..]),
+        ("sha256sum", &[PROGRAM_SRC][..]),
+    ] {
+        let out = std::process::Command::new(bin).args(args).output();
+        if let Ok(o) = out {
+            if o.status.success() {
+                let text = String::from_utf8_lossy(&o.stdout);
+                if let Some(hex) = text.split_whitespace().next() {
+                    if hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return hex.to_ascii_lowercase();
+                    }
+                }
+            }
+        }
+    }
+    "unknown".into()
+}
+
+/// Whether the working tree has uncommitted changes. `false` if git is
+/// unavailable -- the same answer a clean tree gives, but `git_sha` is `None`
+/// there too, so the pair is never misleading.
+fn git_dirty() -> bool {
+    std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| !o.stdout.iter().all(u8::is_ascii_whitespace))
+}
+
+/// Current branch name. `None` on a detached HEAD, where `rev-parse` reports
+/// the literal `HEAD` and there is no label to record.
+fn program_variant() -> Option<String> {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty() && s != "HEAD")
 }
 
 fn kernel() -> Option<String> {

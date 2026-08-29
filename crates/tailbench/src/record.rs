@@ -29,30 +29,10 @@ impl Outcome {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum CallOutcome {
-    Ok,
-    Timeout,
-    Error,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CallSpan {
-    pub downstream_id: String,
-    pub attempt: u32,
-    /// Time waiting for a capacity permit. Part of the call's latency, and the
-    /// mechanism by which a downstream saturates.
-    pub queue_wait_ns: u64,
-    pub service_ns: u64,
-    pub outcome: CallOutcome,
-}
-
-impl CallSpan {
-    pub fn total_ns(&self) -> u64 {
-        self.queue_wait_ns + self.service_ns
-    }
-}
+// `CallSpan`/`CallOutcome` moved to `tailbench-abi`: they cross the wire, so
+// the program needs them too. Re-exported rather than re-declared -- two
+// definitions of a bincode type is exactly how a wire format drifts.
+pub use tailbench_abi::span::{CallOutcome, CallSpan};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequestRecord {
@@ -107,6 +87,24 @@ pub struct RunManifest {
     pub scenario_path: String,
     pub seed: u64,
     pub git_sha: Option<String>,
+    /// SHA-256 of the program's source file. `git_sha` alone cannot tell two
+    /// variants apart -- an agent iterating on one file leaves a dirty tree as
+    /// the normal state, so every such run records the same commit. This
+    /// pins the exact source that ran, and survives a rebase onto a newer
+    /// harness. `unknown` if the file could not be read or hashed.
+    ///
+    /// Defaulted, like the two below: runs written before this field existed
+    /// are still read by the notebooks.
+    #[serde(default)]
+    pub program_sha256: String,
+    /// Whether the tree had uncommitted changes, i.e. whether `git_sha`
+    /// describes what actually ran.
+    #[serde(default)]
+    pub git_dirty: bool,
+    /// Human label for the variant -- the branch name. `None` on a detached
+    /// HEAD or outside a checkout.
+    #[serde(default)]
+    pub program_variant: Option<String>,
     /// `linux-pinned` or `unpinned`. Anything not `linux-pinned` is
     /// stamped non-authoritative in every report it appears in.
     pub environment: String,

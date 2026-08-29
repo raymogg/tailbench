@@ -350,6 +350,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "program"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures",
+ "tailbench-abi",
+ "tokio",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -517,8 +528,19 @@ dependencies = [
  "rand_distr",
  "serde",
  "serde_json",
+ "tailbench-abi",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "tailbench-abi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "serde",
+ "tokio",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@
 FROM rust:1.98-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-COPY src ./src
+COPY crates ./crates
 RUN cargo build --release --bins
 
 FROM debian:bookworm-slim

@@ -9,15 +9,13 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-/// splitmix64 finalizer. Explicit and documented rather than `DefaultHasher`,
-/// whose output is not stable across Rust releases -- cross-version
-/// reproducibility is the point.
-fn splitmix64(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
+// splitmix64 and fold_digest live in `tailbench-abi`: the program needs the
+// fold, so a single definition is the only way the two sides cannot drift.
+// Everything below stays here -- these are the seeded draws, and a program
+// holding `call_digest` could forge every response without doing the work.
+use tailbench_abi::digest::splitmix64;
+
+pub use tailbench_abi::digest::fold_digest;
 
 /// Pack a call site into one integer, each field in its own bit range.
 ///
@@ -75,18 +73,6 @@ pub fn class_rng(seed: u64) -> ChaCha8Rng {
 pub fn call_digest(seed: u64, request_id: u64, downstream_id: u16) -> u64 {
     let key = call_key(request_id, downstream_id, 0);
     splitmix64(seed ^ 0xD16E_5700_D16E_5700 ^ splitmix64(key))
-}
-
-/// Fold per-call digests into a response digest. Order-independent: call order
-/// is deliberately unconstrained, because constraining it would forbid P4's fix
-/// (making a serialized fan-out parallel).
-pub fn fold_digest(nonce: u64, call_digests: &mut [u64]) -> u64 {
-    call_digests.sort_unstable();
-    let mut acc = splitmix64(nonce);
-    for d in call_digests.iter() {
-        acc = splitmix64(acc ^ d);
-    }
-    acc
 }
 
 /// Per-request payload nonce. Unique per request_id, which is what makes

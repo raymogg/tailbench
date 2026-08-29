@@ -1,0 +1,13 @@
+[package]
+name = "tailbench-abi"
+version = "0.1.0"
+edition = "2021"
+
+# Deliberately minimal. Every dependency here is one the program under test
+# also gets; `rand` and `toml` are absent so a program cannot draw seeded
+# values or parse a scenario file without adding a dependency of its own.
+[dependencies]
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+bincode = "1"

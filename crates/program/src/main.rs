@@ -1,10 +1,15 @@
 //! The program under test -- THE ONLY FILE AN AGENT MAY EDIT.
 //!
 //! Everything else in this repository is measurement apparatus: `loadgen`
-//! schedules and scores requests, `downstreams` simulates the dependencies,
-//! and the library crate carries the wire types and the oracle. Editing any of
-//! it changes the ruler rather than the thing being measured, and the scores
-//! stop meaning anything.
+//! schedules and scores requests, and `downstreams` simulates the dependencies.
+//! Editing any of it changes the ruler rather than the thing being measured,
+//! and the scores stop meaning anything.
+//!
+//! This crate depends on `tailbench-abi` -- the wire protocol, the downstream
+//! client, and `fold_digest` -- and not on the harness. The scorer and the
+//! seeded draws are therefore unreachable from here: `use
+//! tailbench::oracle::Oracle` does not resolve, and `call_digest` is not in the
+//! ABI. That is deliberate, and it is the reason the scores mean something.
 //!
 //! What this file does: receive a request from the load generator, call the
 //! downstreams that request requires, fold their replies into a digest, and
@@ -32,11 +37,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
 
-use tailbench::downstream::{span_of, CallCtx, UdsClient};
-use tailbench::protocol::{ProgramReply, ProgramRequest};
-use tailbench::ready;
-use tailbench::rng::fold_digest;
-use tailbench::wire::{read_msg, write_msg};
+use tailbench_abi::call::{span_of, CallCtx, UdsClient};
+use tailbench_abi::protocol::{ProgramReply, ProgramRequest};
+use tailbench_abi::ready;
+use tailbench_abi::digest::fold_digest;
+use tailbench_abi::wire::{read_msg, write_msg};
 
 #[derive(Parser, Debug)]
 #[command(about = "tailbench program under test")]

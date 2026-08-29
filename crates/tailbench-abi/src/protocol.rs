@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::record::CallSpan;
+use crate::span::CallSpan;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProgramRequest {

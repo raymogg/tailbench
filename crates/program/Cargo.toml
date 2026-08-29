@@ -1,0 +1,21 @@
+[package]
+name = "program"
+version = "0.1.0"
+edition = "2021"
+
+# The code under test. `tailbench-abi` is the ONLY path dependency: adding
+# `tailbench` here would hand the program the scorer and the seeded draws, and
+# is what `tests/isolation.rs` checks for.
+#
+# No `rand` (it would let a program draw seeded values), no `toml` and no
+# `serde` (parsing a scenario file is how the seed leaks under `run.sh`).
+[dependencies]
+tailbench-abi = { path = "../tailbench-abi" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+
+[[bin]]
+name = "program"
+path = "src/main.rs"

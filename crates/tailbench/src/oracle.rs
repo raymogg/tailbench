@@ -1,5 +1,6 @@
-//! Success definition. Scorer-side: the service under test must never be
-//! able to reach this module.
+//! Success definition. Scorer-side, and now structurally so: `crates/program`
+//! depends on `tailbench-abi` rather than on this crate, so `use
+//! tailbench::oracle::Oracle` fails to resolve. This used to be a request.
 
 use std::collections::HashSet;
 

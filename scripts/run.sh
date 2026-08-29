@@ -36,7 +36,14 @@ trap cleanup EXIT
 cargo build --release --quiet
 
 ./target/release/downstreams --config "$SCENARIO" --socket "$RUN_DIR/downstreams.sock" &
-./target/release/program --listen "$RUN_DIR/program.sock" --downstreams "$RUN_DIR/downstreams.sock" &
+# Launched from $RUN_DIR, not the repo root. The crate boundary stops the
+# program *linking* the seeded draws, but not reading the seed straight out of
+# scenarios/*.toml -- it only needs a regex, not Config. Under compose the
+# program container simply has no /scenarios mount; this is the bare-metal
+# equivalent. Socket paths are already absolute, so nothing else changes.
+REPO="$(pwd)"
+(cd "$RUN_DIR" && exec "$REPO/target/release/program" \
+  --listen "$RUN_DIR/program.sock" --downstreams "$RUN_DIR/downstreams.sock") &
 
 ./target/release/loadgen run \
   --config "$SCENARIO" \

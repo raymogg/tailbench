@@ -3,8 +3,10 @@
 An experimental environment for measuring and optimizing p99 latency of async
 services under open-loop load.
 
-**`src/bin/program.rs` is the only file an agent may edit.** Everything else is
-measurement apparatus. See [What gets optimized](#what-gets-optimized).
+**`crates/program/src/main.rs` is the only file an agent may edit.** Everything
+else is measurement apparatus, and the crate boundary enforces it: `program`
+depends on `tailbench-abi`, not on the harness, so reaching the scorer is a
+compile error. See [What gets optimized](#what-gets-optimized).
 
 ## Quick start
 
@@ -53,8 +55,8 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
 │ oracle, records │─◀─│ downstreams     │─◀─│ digest          │
 └─────────────────┘   └─────────────────┘   └─────────────────┘
         │                      ▲
-        ▼              src/bin/program.rs
-  results/<run>/       (the only editable file)
+        ▼          crates/program/src/main.rs
+  results/<run>/   (the only editable file)
 ```
 
 - **Separate processes, pinned cores.** Sharing a runtime with the code under
@@ -78,7 +80,7 @@ loadgen validate --config <scenario>   # measured quantiles vs the closed form
 
 ## What gets optimized
 
-`src/bin/program.rs` is the code under test, and the only file open to
+`crates/program/src/main.rs` is the code under test, and the only file open to
 optimization. It receives a request, calls the downstreams that request
 requires, folds their replies into a digest, and returns it before the deadline.
 This repo includes a baseline sample implementation of program.rs
@@ -87,10 +89,11 @@ This repo includes a baseline sample implementation of program.rs
 
 | Process | Files | Role |
 |---|---|---|
-| `program` | `src/bin/program.rs` | **The code under test. Edit this.** |
-| `loadgen` | `src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `loadgen_client.rs` | Schedules arrivals, scores outcomes |
-| `downstreams` | `src/bin/downstreams.rs`, `downstream.rs` | Simulates dependencies with seeded latency |
-| shared | `protocol.rs`, `wire.rs`, `record.rs`, `config.rs`, `rng.rs`, `clock.rs`, `distributions.rs`, `ready.rs` | Wire types, config, determinism |
+| `program` | `crates/program/src/main.rs` | **The code under test. Edit this.** |
+| `loadgen` | `crates/tailbench/src/bin/loadgen.rs`, `load_generator.rs`, `timeline.rs`, `oracle.rs`, `report.rs`, `loadgen_client.rs` | Schedules arrivals, scores outcomes |
+| `downstreams` | `crates/tailbench/src/bin/downstreams.rs`, `downstream.rs` | Simulates dependencies with seeded latency |
+| shared | `crates/tailbench-abi/` — `protocol.rs`, `wire.rs`, `call.rs`, `span.rs`, `digest.rs`, `ready.rs` | The program/harness contract (~150 lines) |
+| harness-only | `config.rs`, `rng.rs`, `clock.rs`, `distributions.rs`, `record.rs` | Seeded draws and scoring. Not reachable from `program`. |
 
 ### The rules
 
@@ -113,6 +116,44 @@ Open, and the point of the exercise:
   call order is unconstrained, so a second attempt at a slow downstream is
   allowed. Each `attempt` draws a fresh latency.
 - **Timeouts**, and what to do when one fires.
+
+### The isolation boundary
+
+`crates/program` depends on `tailbench-abi` and **not** on `tailbench`. That is
+what makes the rules above enforceable rather than advisory:
+
+```rust
+use tailbench::oracle::Oracle;              // unresolved module or unlinked crate
+use tailbench_abi::digest::call_digest;     // no `call_digest` in `digest`
+```
+
+The ABI carries the wire protocol, the framing, the downstream client, the
+readiness handshake, and `fold_digest` — roughly 150 lines. It deliberately
+excludes `call_digest`, `call_rng`, and `payload_nonce`: a program holding those
+could compute every expected digest from the seed and skip the work entirely.
+
+Two things the boundary cannot do, covered separately: a program could
+reimplement the digest algorithm from scratch, or read the seed out of
+`scenarios/*.toml`. `crates/tailbench/tests/isolation.rs` greps for the former;
+`scripts/run.sh` launches the program from a scratch cwd for the latter, which
+is what `docker/compose.yml` already achieves by not mounting `/scenarios`.
+
+### Tracking variants
+
+Each run records `program_sha256` — the hash of the program source that actually
+ran. `git_sha` alone cannot tell two variants apart, because an agent iterating
+on one file leaves a dirty tree, so every such run reports the same commit;
+`git_dirty` flags exactly that case. `program_variant` records the branch.
+
+One branch per variant, each differing from `master` in one file:
+
+```bash
+git switch -c variant/my-change
+# edit crates/program/src/main.rs
+scripts/run.sh scenarios/fanout-bimodal.toml
+```
+
+Then compare in `notebooks/compare_runs.ipynb`.
 
 ### Verifying a change
 
